@@ -1,0 +1,57 @@
+# StreamDoc — Docker Compose (EXPERIMENTAL)
+#
+# WARNING: This Docker setup has not been tested in production.
+# It is provided as a starting point for containerized deployments.
+#
+# NotebookLM auth: run `notebooklm login` on the HOST once, then the container
+# reads the session from the mounted volume. Never bake credentials into the image.
+# See docs/integrations-auth.md and README.md for details.
+#
+# When the Google session expires, re-run `notebooklm login` on the host, then:
+#   docker compose restart app
+#
+# Usage:
+#   cp .env.example .env        # then edit values
+#   just docker-up              # build + start (or: docker compose up -d --build)
+#   open http://localhost:5454
+#   just docker-logs            # tail logs (or: docker compose logs -f)
+#   just docker-down            # stop (or: docker compose down)
+
+services:
+  app:
+    build: .
+    image: streamdoc:latest
+    ports:
+      - "127.0.0.1:5454:5454"      # API + built web GUI
+    volumes:
+      - ./data:/app/data            # runtime media, outputs, state, NotebookLM session
+      - ./config:/app/config        # user presets, prompts, integration config
+      - ./assets:/app/assets:ro     # shipped sample prompts (read-only)
+    env_file: .env
+    environment:
+      - STREAMDOC_ENV=container
+      - STREAMDOC_API_HOST=0.0.0.0
+      - STREAMDOC_API_PORT=5454
+      # Reason: in Docker Compose, the POT provider runs as a sibling
+      # service. Point the app at the container's internal hostname
+      # and disable auto-start since the compose service handles that.
+      - STREAMDOC_POT_PROVIDER_URL=http://pot-provider:4416
+      - STREAMDOC_POT_AUTO_START=false
+    depends_on:
+      - pot-provider
+    restart: unless-stopped
+    # Reason: yt-dlp + faster-whisper benefit from extra headroom on large batches.
+    mem_limit: 4g
+
+  # PO Token provider — generates Proof-of-Origin tokens for yt-dlp
+  # to bypass YouTube's bot detection. Uses the official brainicism image
+  # (TypeScript/Node.js) which matches the bgutil plugin version built
+  # into yt-dlp. Do NOT use the Rust rewrite (ghcr.io/jim60105/bgutil-pot)
+  # — it uses a different versioning scheme and is incompatible with
+  # yt-dlp's built-in plugin.
+  pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    ports:
+      - "127.0.0.1:4416:4416"       # exposed for local dev access too
+    restart: unless-stopped
+    mem_limit: 256m

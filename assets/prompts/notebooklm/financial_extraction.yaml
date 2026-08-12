@@ -1,0 +1,20 @@
+name: "financial_extraction"
+description: "Extract financial data, recommendations, and insights from video content"
+target_types:
+  - slide_deck
+  - infographic
+  - report
+prompt: |
+  Analyze this content and create a {content_type} that:
+  - Extracts all financial data, metrics, and key statistics
+  - Highlights investment recommendations and actionable insights
+  - Identifies market trends and predictions mentioned
+  - Disregards commercial content, advertisements, and promotional material
+  - Excludes irrelevant personal anecdotes or entertainment segments
+  - Focuses on substantive business and financial information
+
+  Format the output as a professional financial analysis suitable for investors.
+
+  Additional context: {context}
+variables:
+  context: "Financial content from YouTube video analysis"

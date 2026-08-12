@@ -1,0 +1,146 @@
+description: Comprehensive prompt to extract all financial information
+name: General Finance
+prompt: 'Create a detailed slide deck based only on the uploaded finance and market-related
+  sources.
+
+
+  Objective:
+
+  Extract the most important, decision-relevant, and high-signal insights across stocks,
+  sectors, indices, macro, earnings, and market structure. The presentation should
+  identify what is new, important, surprising, actionable, or strategically relevant.
+
+
+  Coverage requirements:
+
+  - Cover all major topics that appear in the sources without omitting important material.
+
+  - If the source set is long, create the maximum practical slide deck size needed
+  to cover all topics thoroughly.
+
+  - Do not shorten the deck just to fit an arbitrary length.
+
+  - Prefer more slides over skipping important topics.
+
+  - Make the deck self-contained and readable on its own.
+
+
+  Primary focus:
+
+  For each major topic, extract and synthesize:
+
+  - Overall market outlook and direction.
+
+  - What each speaker/channel/analyst finds most important right now.
+
+  - Current market regime: risk-on, risk-off, trend continuation, rotation, late-cycle,
+  defensive, range-bound, or uncertain.
+
+  - Views on major indices, broad market breadth, leadership, and weakness.
+
+  - Stock, sector, and theme-level opportunities.
+
+  - Whether the speakers/channels are bullish, bearish, neutral, selective, accumulating,
+  trimming, rotating, hedging, waiting, or uncertain.
+
+  - Their stated or implied plans: buying, selling, holding, reducing exposure, rotating
+  sectors, waiting for confirmation, hedging, or watching key levels.
+
+  - Key reasons behind each view: macro, inflation, rates, liquidity, earnings, valuation,
+  positioning, guidance, fiscal policy, regulation, AI theme, consumer health, margins,
+  credit conditions, geopolitics, or market internals.
+
+  - Risks, invalidation conditions, and what would change their view.
+
+
+  Synthesis rules:
+
+  - Group the content by market themes, not by source order.
+
+  - Combine duplicate or overlapping points across sources into one synthesized insight.
+
+  - If several speakers make the same point, present it as a shared or consensus view.
+
+  - If different speakers disagree, make the disagreement explicit and compare the
+  reasoning.
+
+  - Distinguish clearly between consensus views, minority views, and unique contrarian
+  views.
+
+
+  Suggested slide flow:
+
+  1. Title slide.
+
+  2. Executive summary: the biggest market takeaways from all sources.
+
+  3. Market regime overview: sentiment, positioning, leadership, and dominant narratives.
+
+  4. Macro backdrop: inflation, rates, growth, policy, liquidity, and major macro
+  drivers.
+
+  5. Broad equity market view: indices, breadth, trend, and market internals.
+
+  6. Sector rotation: which sectors are strengthening, weakening, crowded, or early.
+
+  7. Stock-specific ideas: notable longs, shorts, watchlist names, and selective opportunities.
+
+  8. Earnings and fundamentals: guidance, margins, revenue trends, valuation concerns,
+  and revisions.
+
+  9. Positioning map: who is buying, trimming, rotating, hedging, waiting, or staying
+  defensive.
+
+  10. Consensus vs disagreement: where analysts align and where they diverge.
+
+  11. Risks and watchlist: what could break the thesis, what to monitor next.
+
+  12. Cross-speaker summary: hypotheses, directional bias, and unique thoughts from
+  each speaker/channel.
+
+  13. Final appendix: list all included speakers/channels/sources.
+
+
+  Content style:
+
+  - Use strong slide titles that state the conclusion.
+
+  - Keep slides concise but information-dense.
+
+  - Prefer summarized insights, comparisons, and synthesized takeaways over raw repetition.
+
+  - Preserve uncertainty where the source is uncertain.
+
+  - Highlight especially interesting, non-obvious, or differentiated ideas.
+
+
+  Important extraction hints:
+
+  - Capture explicit plans, allocations, entries, trims, exits, wait conditions, hedges,
+  and scenario triggers.
+
+  - Capture notable time horizons when mentioned: near term, swing, quarter, cycle,
+  multi-quarter, long term.
+
+  - Capture any specific catalysts, dates, levels, earnings events, valuation frameworks,
+  sectors, narratives, and positioning signals mentioned in the sources.
+
+  - If multiple sources discuss the same stock, sector, or macro theme repeatedly,
+  merge the repeated discussion into one unified view rather than duplicating it slide
+  by slide.
+
+  - Distinguish clearly between factual developments, interpretation, and speculative
+  outlook.
+
+
+  Final slides:
+
+  - Include a dedicated summary of all speakers/channels with their hypothesis, directional
+  stance, and unique angle.
+
+  - Include a small section listing all speakers/channels/sources represented in the
+  presentation.'
+target_types:
+- slide_deck
+- infographic
+variables: {}

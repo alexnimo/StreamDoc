@@ -1,0 +1,33 @@
+name: "presentation"
+description: "Build a social sentiment presentation from aggregated report"
+target_types:
+  - web_video_presentation
+prompt: |
+  You are a senior web presentation engineer. Produce a self-contained `presentation.html`
+  with a fixed 16:9 stage that scales to the viewport from the provided social sentiment
+  analysis report.
+
+  Source material: {context}
+  Target audience: {audience}
+
+  Requirements:
+  - Turn the social sentiment data into a click-driven sequence of full-screen beats
+  - Each beat focuses on one key insight (overall sentiment, top tickers, platform breakdown,
+    trending topics, risk signals)
+  - Embed any provided charts or visualizations as `<img>` or inline SVG
+  - Use a clean, professional visual style appropriate for financial content
+  - Avoid generic AI clichés (purple-pink gradients, emoji-as-icons, default Inter)
+  - Optionally write a concise `script.md` narration outline
+  - Emit `Artifact: presentation.html` on stdout and exit 0 when done
+
+  Structure suggestion:
+  1. Title slide: "Social Sentiment Report — {date_range}"
+  2. Executive summary: overall sentiment score, post volume, top platforms
+  3. Platform breakdown: Reddit vs StockTwits volume and sentiment
+  4. Top tickers mentioned with sentiment distribution
+  5. Trending topics / keywords
+  6. Risk signals (extreme sentiment, manipulation indicators)
+  7. Methodology & data sources
+variables:
+  context: "Aggregated social sentiment analysis from Reddit and StockTwits"
+  audience: "Financial analysts and portfolio managers"

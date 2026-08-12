@@ -1,0 +1,22 @@
+name: "default"
+description: "Default template for general content generation"
+target_types:
+  - slide_deck
+  - podcast
+  - infographic
+  - report
+prompt: |
+  Create a {content_type} based on the provided content.
+
+  Focus on:
+  - Key insights and main points
+  - Clear and concise presentation
+  - Professional quality output
+  - Actionable takeaways for the audience
+
+  Context: {context}
+
+  Target audience: {audience}
+variables:
+  context: "YouTube video analysis"
+  audience: "General professional audience"

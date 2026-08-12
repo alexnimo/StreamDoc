@@ -1,0 +1,180 @@
+description: ''
+name: Crypto Daily Brief
+prompt: 'Create a detailed slide deck based only on the uploaded crypto-related sources.
+
+
+  Objective:
+
+  Extract the most interesting, high-signal, and decision-relevant insights from the
+  crypto market across all uploaded PDFs. The presentation should identify what is
+  new, important, unusual, actionable, or strategically relevant.
+
+
+  Coverage requirements:
+
+  - Cover all major topics that appear in the sources without omitting important material.
+
+  - If the source set is long, create the maximum practical slide deck size needed
+  to cover all topics thoroughly.
+
+  - Do not shorten the deck just to fit an arbitrary length.
+
+  - Prefer more slides over skipping important topics.
+
+  - Do not include any advertisement content, general chatter or occasional / not
+  related / non relevant content or conversations.
+
+
+  Primary focus:
+
+  For each major topic, extract and synthesize:
+
+  - Market outlook and direction.
+
+  - What each speaker/channel finds most interesting right now.
+
+  - New developments, emerging narratives, and unusual opportunities.
+
+  - Whether the speakers/channels are bullish, bearish, neutral, rotating, accumulating,
+  distributing, waiting, hedging, or uncertain.
+
+  - Their stated or implied plans: buying, selling, holding, waiting, scaling in,
+  reducing exposure, rotating sectors, or watching for confirmation.
+
+  - Key reasons behind each view: macro, regulation, liquidity, BTC/ETH structure,
+  altcoin rotation, stablecoins, on-chain metrics, ETF flows, token unlocks, narratives,
+  trading psychology, risk management, or catalysts.
+
+  - Risks, invalidation conditions, and what would change their view.
+
+
+  Synthesis rules:
+
+  - Group the content by market themes, not by source order.
+
+  - Combine duplicate or overlapping points across sources into one synthesized insight.
+
+  - If several speakers make the same point, present it as a shared or consensus view.
+
+  - If different speakers disagree, make the disagreement explicit and compare the
+  reasoning.
+
+  - Distinguish clearly between consensus views, minority views, and unique contrarian
+  views.
+
+
+  Suggested slide flow:
+
+  1. Title slide.
+
+  2. Executive summary: the biggest crypto market takeaways from all sources.
+
+  3. Market regime overview: current tone, sentiment, posture, and dominant narratives.
+
+  4. Bitcoin view: trend, catalysts, risks, positioning, and what speakers are doing.
+
+  5. Ethereum and majors: key views, catalysts, flows, and risks.
+
+  6. Altcoin and sector rotation: where attention is moving and why.
+
+  7. New and interesting developments: technologies, narratives, sectors, protocols,
+  regulation, capital flows, or market structure changes.
+
+  8. Speaker positioning map: who is buying, selling, waiting, hedging, or staying
+  selective.
+
+  9. Consensus vs disagreement: where speakers align and where they diverge.
+
+  10. Risks and watchlist: what could break the thesis, what to monitor next.
+
+  11. Cross-speaker summary: hypotheses, directional bias, and unique thoughts from
+  each speaker/channel.
+
+  12. Final appendix: list all included speakers/channels.
+
+
+  Content style:
+
+  - Use strong slide titles that state the conclusion.
+
+  - Keep slides concise but information-dense.
+
+  - Prefer summarized insights, comparisons, and synthesized takeaways over raw repetition.
+
+  - Preserve uncertainty where the source is uncertain.
+
+  - Highlight especially interesting, non-obvious, or differentiated ideas.
+
+
+  Important extraction hints:
+
+  - Capture explicit plans, entries, exits, wait conditions, and scenario triggers.
+
+  - Capture notable time horizons when mentioned: short term, swing, cycle, long term.
+
+  - Capture any specific catalysts, dates, levels, sectors, narratives, or positioning
+  signals mentioned in the sources.
+
+  - If speakers discuss the same coin, sector, or narrative repeatedly, merge the
+  repeated discussion into a unified view rather than duplicating it slide by slide.
+
+
+  Final slides:
+
+  - Include a dedicated summary of all speakers/channels with their hypothesis, directional
+  stance, and unique angle.
+
+  - Include a small section listing all speakers/channels represented in the presentation.
+
+
+  STYLE TEMPLATE:
+
+  Audience: [crypto investors]
+
+  Deck type: [Detailed Deck]
+
+  Tone: [analytical / bold / educational / thesis-driven]
+
+  Visual style: [clean modern with dark finance]
+
+  Length preference: [as long as needed to cover all important topics]
+
+  Density: [balanced]
+
+  Structure preference:
+
+  - Use clear section dividers.
+
+  - Prefer grouped topic slides over source-by-source slides.
+
+  - Use comparison tables when several speakers discuss the same topic.
+
+  - Use summary slides after major sections.
+
+  - End with synthesis, speaker/channel summary, and included-source list.
+
+
+  Optional emphasis toggles:
+
+  - Emphasize consensus views.
+
+  - Emphasize disagreements.
+
+  - Emphasize actionability.
+
+  - Emphasize risk management.
+
+  - Emphasize catalysts and what to watch next.
+
+  - Emphasize timelines and scenarios.
+
+  - Emphasize only high-conviction ideas.
+
+  - Include more visuals if source images are useful.
+
+  - Keep visuals secondary to substance.'
+target_types:
+- slide_deck
+- infographic
+- report
+variables: {}

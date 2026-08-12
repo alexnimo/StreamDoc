@@ -1,0 +1,53 @@
+name: "json_export"
+description: "Emit structured JSON from social sentiment report for 3rd-party consumption"
+target_types:
+  - web_design_engineer
+prompt: |
+  You are a data engineer. Produce a clean, well-structured JSON artifact from the
+  provided social sentiment analysis report.
+
+  Source material: {context}
+  Target audience: {audience}
+
+  Requirements:
+  - Output a single JSON object to `artifact/sentiment_report.json`
+  - Include all key metrics: overall sentiment, post counts, platform breakdown,
+    ticker mentions with sentiment scores, trending topics, risk signals
+  - Use consistent field naming (snake_case), include units where applicable
+  - Include metadata: generated_at, date_range, sources, methodology
+  - Ensure valid JSON (no trailing commas, proper escaping)
+  - Do not include any markdown formatting or explanatory text in the output
+  - Emit `Artifact: artifact/sentiment_report.json` on stdout and exit 0 when done
+
+  Expected JSON structure:
+  {
+    "metadata": {
+      "generated_at": "ISO8601",
+      "date_range": "start..end",
+      "sources": ["reddit", "stocktwits"],
+      "methodology": "VADER/FinBERT sentiment on post text"
+    },
+    "summary": {
+      "total_posts": 150,
+      "overall_sentiment": 0.12,
+      "sentiment_label": "slightly_positive"
+    },
+    "platforms": {
+      "reddit": {"posts": 50, "sentiment": 0.08},
+      "stocktwits": {"posts": 100, "sentiment": 0.14}
+    },
+    "tickers": [
+      {"symbol": "AAPL", "mentions": 45, "sentiment": 0.23, "sentiment_label": "positive"},
+      {"symbol": "TSLA", "mentions": 38, "sentiment": -0.11, "sentiment_label": "negative"}
+    ],
+    "trending_topics": [
+      {"topic": "earnings", "mentions": 32, "sentiment": 0.15},
+      {"topic": "fed_rate", "mentions": 28, "sentiment": -0.05}
+    ],
+    "risk_signals": [
+      {"type": "extreme_sentiment", "ticker": "GME", "score": 0.89, "description": "Unusually high positive sentiment"}
+    ]
+  }
+variables:
+  context: "Aggregated social sentiment analysis from Reddit and StockTwits"
+  audience: "Data engineers and API consumers"

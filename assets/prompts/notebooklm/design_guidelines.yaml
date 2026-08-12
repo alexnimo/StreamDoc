@@ -1,0 +1,20 @@
+name: "design_guidelines"
+description: "Visual design patterns for artifact generation"
+target_types:
+  - slide_deck
+  - infographic
+prompt: |
+  When creating the visual design for this {content_type}:
+  - Use clean, professional layouts with consistent spacing
+  - Prioritize data visualization for financial metrics
+  - Use color schemes appropriate for business presentations (blues, grays, subtle accents)
+  - Ensure text is readable and information hierarchy is clear
+  - Include charts/graphs where data supports it
+  - Maintain consistent branding throughout
+
+  Design style: {style}
+
+  Additional design notes: {notes}
+variables:
+  style: "professional corporate"
+  notes: "Focus on clarity and data-driven visuals"

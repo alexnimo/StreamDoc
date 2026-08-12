@@ -1,0 +1,19 @@
+name: "sample-social"
+preset_type: "social"
+social_sources:
+  - platform: "reddit"
+    identifier: "finance"
+    max_posts: 50
+  - platform: "stocktwits"
+    identifier: "AAPL"
+    max_posts: 100
+social_lookback_hours: 12
+social_max_posts: 200
+outputs: "pdf,markdown,notebooklm,agy"
+cli_tool: "agy"
+cli_tool_template: "presentation"
+schedule: "interval:43200"
+active: true
+retention_enabled: true
+file_retention_hours: 24
+notebook_retention_hours: 168

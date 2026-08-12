@@ -1,0 +1,17 @@
+# mprocs config — local development with clean multi-process management.
+#
+# Install mprocs:  cargo install mprocs  |  npm install -g mprocs
+# Run:             mprocs --config mprocs.yaml
+# Or via just:     just dev-mprocs
+#
+# Ctrl-C inside mprocs kills BOTH processes cleanly (no orphans).
+
+processes:
+  api:
+    cmd: uv run uvicorn streamdoc.api.app:create_app --factory --reload --reload-dir src/streamdoc --reload-exclude "data/*" --reload-exclude "config/*" --reload-exclude "assets/*" --reload-exclude "frontend/*" --reload-exclude "tests/*" --port 5454
+    title: "StreamDoc API (:5454)"
+
+  web:
+    cmd: npm run dev
+    cwd: frontend
+    title: "Vite Dev Server (:5173)"
