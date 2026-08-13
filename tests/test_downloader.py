@@ -446,6 +446,8 @@ def test_dump_json_retries_with_fallback_on_bot_detection(monkeypatch):
     ("ERROR: Could not copy Chrome cookie database.", True),
     ("Rate limit exceeded. Too many requests (429)", True),
     ("Sign in to view this content", True),
+    # Reason: HTTP 403 is a transient PO-token/format issue, not permanent.
+    ("ERROR: unable to download video data: HTTP Error 403: Forbidden", True),
     ("Join this channel to get access to members-only content", False),
     ("Private video", False),
     ("Video unavailable", False),
@@ -455,3 +457,70 @@ def test_should_fallback_retry(stderr, expected):
     """_should_fallback_retry should match transient/retriable categories only."""
     from streamdoc.core.downloader import _should_fallback_retry
     assert _should_fallback_retry(stderr) is expected
+
+
+def test_get_fallback_bypass_modes_parses_comma_separated(monkeypatch):
+    """_get_fallback_bypass_modes should parse comma-separated fallback chains."""
+    from streamdoc.core.downloader import _get_fallback_bypass_modes
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "cookies_from_browser,cookie,default")
+    modes = _get_fallback_bypass_modes()
+    assert modes == ["cookies_from_browser", "cookie", "default"]
+
+
+def test_get_fallback_bypass_modes_excludes_primary(monkeypatch):
+    """_get_fallback_bypass_modes should exclude the primary mode from the chain."""
+    from streamdoc.core.downloader import _get_fallback_bypass_modes
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "po_token,cookies_from_browser")
+    modes = _get_fallback_bypass_modes()
+    assert modes == ["cookies_from_browser"]
+
+
+def test_download_preserves_original_error_when_fallback_hits_cookie_lock(monkeypatch):
+    """download() should return the original error, not cookie_db_locked, when
+    the fallback fails with a cookie DB lock.
+
+    Reason: when po_token fails with bot_detection and the fallback to
+    cookies_from_browser hits the cookie DB lock, the user should see the
+    bot_detection error (the real root cause), not the misleading
+    cookie_db_locked error from the fallback attempt.
+    """
+    from streamdoc.core.downloader import download
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "cookies_from_browser,default")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+    monkeypatch.setattr(settings, "yt_dlp_cookies_browser", "chrome")
+    monkeypatch.setattr(settings, "yt_dlp_cookies_browser_profile", None)
+    monkeypatch.setattr(settings, "yt_dlp_pot_provider", "bgutil")
+    monkeypatch.setattr(settings, "pot_provider_url", "http://127.0.0.1:4416")
+
+    call_count = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # Reason: po_token fails with bot detection
+            return MagicMock(returncode=1, stderr="Sign in to confirm you're not a bot", stdout="")
+        if call_count["n"] == 2:
+            # Reason: cookies_from_browser fallback hits cookie DB lock
+            return MagicMock(returncode=1, stderr="ERROR: Could not copy Chrome cookie database.", stdout="")
+        # Reason: default fallback also fails with bot detection
+        return MagicMock(returncode=1, stderr="Sign in to confirm you're not a bot", stdout="")
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", "%(id)s.%(ext)s")
+
+    # Reason: all 3 attempts made (po_token + 2 fallbacks)
+    assert call_count["n"] == 3
+    assert result.returncode == 1
+    # Reason: the final error should be the bot_detection error, NOT
+    # cookie_db_locked (which was just the fallback hitting Chrome's lock).
+    from streamdoc.core.downloader import classify_download_error
+    assert classify_download_error(result.stderr or "") == "bot_detection"

@@ -217,8 +217,13 @@ def test_ensure_pot_provider_fallback_no_docker(monkeypatch):
     assert get_effective_bypass_mode() == "cookie"
 
 
-def test_ensure_pot_provider_fallback_defaults_to_cookies_from_browser(monkeypatch):
-    """When no fallback mode is configured, defaults to cookies_from_browser."""
+def test_ensure_pot_provider_fallback_defaults_to_no_auth(monkeypatch):
+    """When no fallback mode is configured, defaults to no-auth (default).
+
+    Reason: cookies_from_browser reads from the user's active browser profile
+    and risks getting their YouTube account banned. It should never be used
+    as an automatic fallback. The safe default is "default" (no-auth).
+    """
     monkeypatch.setattr(pot_provider, "is_pot_server_reachable", lambda url=None, timeout=2.0: False)
     monkeypatch.setattr(pot_provider, "_is_container_running", lambda: False)
     monkeypatch.setattr(pot_provider, "is_docker_available", lambda: False)
@@ -226,7 +231,7 @@ def test_ensure_pot_provider_fallback_defaults_to_cookies_from_browser(monkeypat
 
     result = ensure_pot_provider()
     assert result.status == PotProviderStatus.FALLBACK
-    assert result.effective_bypass_mode == "cookies_from_browser"
+    assert result.effective_bypass_mode == "default"
 
 
 # ---------------------------------------------------------------------------

@@ -53,7 +53,7 @@ A polished React web dashboard lets you manage presets, watch live job progress 
 - **Smart NotebookLM Bundling** — Adaptive bin-packing upload strategy (`individual` / `combined` / `smart`) that respects the 50-file × 200MB NotebookLM free-tier limits
 - **PO Token Bot-Detection Bypass** — Auto-managed bgutil POT provider container with self-healing fallback chain and per-download bypass-mode logging
 - **Scheduled Deduplication** — `skip_processed` flag + `media_status` tracking means already-processed videos are never re-downloaded; permanent errors (members-only, private, deleted) are classified once and skipped on all future runs — no wasted bandwidth or API calls
-- **Cookie DB Lock Fallback** — On Windows, when Chrome/Edge holds an exclusive lock on its cookie SQLite DB, the pipeline automatically retries with the configured fallback bypass mode instead of failing the download
+- **Safe Fallback Chain** — When the primary bypass mode fails (bot detection, rate limiting, HTTP 403, cookie DB lock), the pipeline retries with the configured fallback chain. The default fallback is no-auth (safe) — `cookies_from_browser` is opt-in only and never used automatically, since reading from your active browser profile risks getting your YouTube account banned
 - **Session Keepalive** — Background task rotates NotebookLM cookies every 30 min so the Google session persists for up to 2 years (same as a real Chrome browser)
 
 ## LLM-free by default
@@ -101,10 +101,20 @@ cp .env.example .env
 #   edit .env — at minimum set STREAMDOC_YOUTUBE_API_KEY if you have one.
 #   The default bypass mode is po_token (auto-starts a Docker container
 #   for PO Token generation). If Docker is not installed, the app falls
-#   back to cookies_from_browser automatically.
+#   back to no-auth (default) mode automatically.
 #   Alternative modes: cookies_from_browser / cookie / default
-#   For cookies_from_browser, sign in to YouTube in Chrome/Edge and set
-#   STREAMDOC_YT_DLP_COOKIES_BROWSER=chrome (or edge, firefox, etc.)
+#   WARNING: cookies_from_browser reads from your ACTIVE browser profile
+#   and can get your YouTube account banned. Only use it if you understand
+#   the risk and ideally with a dedicated browser profile.
+#
+#   IMPORTANT — JavaScript runtime requirement (yt-dlp 2026.07+):
+#   yt-dlp requires an external JS runtime (Node.js v22+, Deno, or Bun)
+#   plus the yt-dlp-ejs package (installed automatically via pyproject.toml)
+#   to solve YouTube's n-challenge. Without it, downloads fail with
+#   "Sign in to confirm you're not a bot" or "Requested format is not available".
+#   The default is STREAMDOC_YT_DLP_JS_RUNTIMES=node (uses Node.js if installed).
+#   Install Node.js from https://nodejs.org or set STREAMDOC_YT_DLP_JS_RUNTIMES=deno
+#   if you prefer Deno.
 
 # 3. Run a preset from the CLI
 uv run streamdoc fetch my-preset
@@ -252,11 +262,12 @@ All settings use the `STREAMDOC_` env prefix. Copy `.env.example` to `.env` and 
 | `STREAMDOC_YT_DLP_BYPASS_MODE` | `po_token` | `po_token` (auto-starts Docker container), `cookies_from_browser`, `cookie`, or `default` |
 | `STREAMDOC_YT_DLP_COOKIES_BROWSER` | `chrome` | Browser for `cookies_from_browser` mode (`chrome`, `edge`, `firefox`, `brave`, etc.) |
 | `STREAMDOC_YT_DLP_COOKIES_BROWSER_PROFILE` | — | Optional browser profile name (e.g. `Default`) |
-| `STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE` | `cookies_from_browser` | Fallback bypass mode when: (1) cookie DB is locked (Chrome/Edge on Windows, [yt-dlp #7271](https://github.com/yt-dlp/yt-dlp/issues/7271)), or (2) `po_token` mode is active but Docker is not available. Options: `default`, `cookie`, `po_token`, `cookies_from_browser`, or empty to disable |
+| `STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE` | `default` | Comma-separated fallback chain tried in order when the primary mode fails. Used when: (1) cookie DB is locked, (2) `po_token` mode is active but Docker is not available, (3) bot detection / rate limiting / HTTP 403. Options: `default` (no-auth, safe), `cookie` (pre-exported jar), `cookies_from_browser` (**opt-in only — ban risk on personal profiles!**), or empty to disable |
 | `STREAMDOC_POT_PROVIDER_URL` | `http://127.0.0.1:4416` | PO Token provider HTTP server URL |
 | `STREAMDOC_POT_PROVIDER_IMAGE` | `brainicism/bgutil-ytdlp-pot-provider:latest` | Docker image for the POT provider (official TypeScript/Node.js, matches yt-dlp's built-in bgutil plugin version) |
 | `STREAMDOC_POT_PROVIDER_CONTAINER_NAME` | `streamdoc-pot` | Docker container name for the POT provider |
 | `STREAMDOC_POT_AUTO_START` | `true` | Auto-start the POT container on app startup if Docker is available |
+| `STREAMDOC_YT_DLP_JS_RUNTIMES` | `node` | JS runtime for yt-dlp's EJS n-challenge solver (required since yt-dlp 2026.07). Options: `node`, `deno`, `bun`, `quickjs`, or comma-separated. Node.js v22+ must be installed |
 | `STREAMDOC_YT_DLP_COOKIEJAR_PATH` | — | Cookie jar for cookie bypass mode |
 | `STREAMDOC_TRANSCRIPT_LANGUAGES` | `en,he,ar` | Preferred transcript languages (comma-separated) |
 | `STREAMDOC_WHISPER_MODEL` | `small` | faster-whisper model name |

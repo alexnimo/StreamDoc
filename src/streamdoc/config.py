@@ -39,31 +39,52 @@ class Settings(BaseSettings):
     # Proof-of-Origin tokens that bypass YouTube's bot detection without
     # needing browser cookies. The container is auto-started on app
     # startup if Docker is available; otherwise the app falls back to
-    # cookies_from_browser or the configured fallback mode.
+    # the configured fallback mode (default: no-auth).
     # Options: po_token | cookies_from_browser | cookie | default
     yt_dlp_bypass_mode: str = "po_token"
     yt_dlp_cookiejar_path: str | None = "data/cookies/youtube.txt"
     yt_dlp_pot_provider: str | None = None
     yt_dlp_user_agent: str | None = None
     yt_dlp_extra_args: str | None = None
+    # Reason: yt-dlp 2026.07+ requires an external JavaScript runtime to solve
+    # YouTube's n-challenge (EJS system). Without it, yt-dlp reports
+    # "JS runtimes: none" and downloads fail with "Sign in to confirm you're
+    # not a bot" or "Requested format is not available". The yt-dlp-ejs
+    # package (challenge solver scripts) must also be installed.
+    # Deno is yt-dlp's default, but Node is more commonly available.
+    # Options: node | deno | bun | quickjs | comma-separated list (e.g. "node,deno")
+    # Set to empty string to disable (not recommended — downloads will fail).
+    yt_dlp_js_runtimes: str = "node"
     # Reason: when bypass_mode=cookies_from_browser, yt-dlp reads cookies
     # directly from the user's signed-in browser session via
     # --cookies-from-browser. This avoids the need for a separate PO-token
     # service or manually exported cookie jar. Supported browsers: chrome,
     # edge, firefox, brave, chromium, opera, safari, vivaldi.
+    # WARNING: using cookies_from_browser with your active/personal browser
+    # profile risks getting your YouTube account banned by YouTube's bot
+    # detection. This mode is OPT-IN — it is never used as an automatic
+    # fallback. Only enable it if you understand the risk, and prefer using
+    # a dedicated/separate browser profile (yt_dlp_cookies_browser_profile)
+    # rather than your daily-driver profile.
     yt_dlp_cookies_browser: str | None = "chrome"
     # Optional browser profile name (e.g. "Default", "Profile 1").
     yt_dlp_cookies_browser_profile: str | None = None
-    # Reason: when bypass_mode=cookies_from_browser and the target browser
-    # (e.g. Chrome) is running on Windows, yt-dlp cannot copy the locked
-    # cookie SQLite DB (yt-dlp issue #7271). This fallback mode is used
-    # to automatically retry the download with a different bypass strategy.
-    # Also used as the fallback when po_token mode is active but Docker
-    # is not available to run the POT provider container.
+    # Reason: fallback bypass mode used when the primary mode fails with a
+    # transient error (bot detection, rate limiting, HTTP 403, cookie DB lock)
+    # or when po_token mode is active but Docker is not available to run the
+    # POT provider container. The default is "default" (no-auth) which is
+    # safe but may hit bot detection on some videos.
+    # Can be a single mode or a comma-separated chain (tried in order):
+    #   "default" — no-auth last resort (safe, may hit bot detection)
+    #   "cookie" — pre-exported Netscape cookie jar (safe, requires setup)
+    #   "cookies_from_browser" — OPT-IN, ban risk on personal profiles!
+    #   "cookie,default" — try cookie jar first, then no-auth
     # Options: po_token | cookie | cookies_from_browser | default | (empty = disabled)
-    # Recommended: "cookies_from_browser" (default fallback) or "cookie"
-    # (pre-exported Netscape cookie jar at yt_dlp_cookiejar_path).
-    yt_dlp_bypass_fallback_mode: str | None = "cookies_from_browser"
+    # WARNING: cookies_from_browser reads from the user's ACTIVE browser
+    # profile and can get their YouTube account banned. It should never be
+    # used as an automatic fallback — only set it explicitly if you accept
+    # the risk and ideally use a dedicated browser profile.
+    yt_dlp_bypass_fallback_mode: str | None = "default"
     yt_dlp_update_strategy: str = "managed"  # managed | docker_image | disabled
     # Reason: PO Token provider container settings. We use the official
     # brainicism/bgutil-ytdlp-pot-provider image (TypeScript/Node.js) which
