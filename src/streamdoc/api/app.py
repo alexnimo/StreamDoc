@@ -192,8 +192,8 @@ def create_app() -> FastAPI:
 
         # Reason: ensure the PO Token provider container is running when
         # bypass_mode=po_token (the default). If Docker is not available,
-        # the app gracefully falls back to cookies_from_browser or the
-        # configured fallback mode. This runs synchronously because every
+        # the app gracefully falls back to the configured fallback mode
+        # (default: no-auth). This runs synchronously because every
         # subsequent yt-dlp call depends on the bypass mode being correct.
         if settings.pot_auto_start and settings.yt_dlp_bypass_mode == "po_token":
             try:

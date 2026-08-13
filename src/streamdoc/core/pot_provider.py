@@ -98,7 +98,7 @@ def get_effective_bypass_mode() -> str:
 
     Returns:
         The effective bypass mode string (e.g. "po_token" or
-        "cookies_from_browser").
+        "default").
     """
     configured = settings.yt_dlp_bypass_mode
     cached = _effective_bypass_mode
@@ -309,7 +309,7 @@ def ensure_pot_provider() -> PotProviderResult:
     2. If Docker is available → start the container, wait for it to be
        reachable, return STARTED.
     3. If Docker is not available → fall back to the configured fallback
-       bypass mode (or cookies_from_browser if no fallback is set),
+       bypass mode (or ``default`` no-auth if no fallback is set),
        return FALLBACK.
 
     The effective bypass mode is returned so the caller can switch the
@@ -458,15 +458,20 @@ def _resolve_fallback_mode() -> str:
 
     Priority:
         1. ``settings.yt_dlp_bypass_fallback_mode`` (explicit user config)
-        2. ``cookies_from_browser`` (works if a browser is signed in)
-        3. ``default`` (last resort — no cookies, may hit bot detection)
+        2. ``default`` (no-auth — safe, may hit bot detection on some videos)
+
+    Reason: we default to ``default`` (no-auth) rather than
+    ``cookies_from_browser`` because reading cookies from the user's active
+    browser profile risks getting their YouTube account banned. The
+    ``cookies_from_browser`` mode is opt-in only and should never be used
+    as an automatic fallback.
 
     Returns:
         The fallback bypass mode string.
     """
     if settings.yt_dlp_bypass_fallback_mode:
         return settings.yt_dlp_bypass_fallback_mode
-    return "cookies_from_browser"
+    return "default"
 
 
 def _wait_for_server(timeout: float = 30.0, interval: float = 1.0) -> bool:

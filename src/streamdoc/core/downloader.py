@@ -43,6 +43,11 @@ _TRANSIENT_ERROR_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("bot_detection", re.compile(r"Sign in to confirm.*not a bot|confirm you.*not a bot", re.IGNORECASE)),
     ("rate_limited", re.compile(r"rate[- ]limit|too many requests|429", re.IGNORECASE)),
     ("login_required", re.compile(r"Sign in|login required", re.IGNORECASE)),
+    # Reason: HTTP 403 Forbidden is often a PO-token/format issue — YouTube
+    # rejects the streaming URL because the GVS PO token wasn't bound correctly
+    # or the format requires authentication. Retrying with a different bypass
+    # mode (e.g. cookies_from_browser) often resolves it.
+    ("forbidden", re.compile(r"HTTP Error 403|403: Forbidden|forbidden", re.IGNORECASE)),
 ]
 # Reason: cookie DB lock is a Windows-specific infrastructure error, not a
 # video-specific error. When Chrome (or Edge) is running, it holds an
@@ -64,6 +69,7 @@ def classify_download_error(stderr: str) -> str:
       - ``"bot_detection"``: YouTube bot-detection challenge (transient).
       - ``"rate_limited"``: Rate limiting (transient).
       - ``"login_required"``: Sign-in required (transient, fixable with cookies).
+      - ``"forbidden"``: HTTP 403 Forbidden (transient — often a PO-token/format issue).
       - ``"cookie_db_locked"``: Browser cookie DB locked (infra error, retriable
         with a different bypass mode).
       - ``"other"``: Unclassified error.
@@ -247,6 +253,39 @@ def _parse_extra_args_to_opts(extra_args: str | None) -> dict[str, Any]:
     return diff
 
 
+def _parse_js_runtimes(runtimes_str: str) -> dict[str, dict[str, Any]]:
+    """Parse a comma-separated JS runtimes string into yt-dlp's dict format.
+
+    Reason: yt-dlp's Python API expects ``js_runtimes`` as a dict mapping
+    runtime name to an options dict (e.g. ``{"node": {"path": None}}``).
+    The CLI accepts ``--js-runtimes node`` or ``--js-runtimes node:/path``.
+    This helper converts the config string to the dict format, preserving
+    Deno (yt-dlp's default) so both can be used if available.
+
+    Args:
+        runtimes_str: Comma-separated runtime names, optionally with
+            ``:path`` suffix (e.g. ``"node"``, ``"node,deno"``,
+            ``"node:/usr/bin/node"``).
+
+    Returns:
+        Dict suitable for ``YoutubeDL(js_runtimes=...)``.
+    """
+    # Reason: always include deno (yt-dlp's default) so it's used if
+    # available, even when the user only specifies node. This matches
+    # the CLI behaviour where --js-runtimes node adds node alongside deno.
+    result: dict[str, dict[str, Any]] = {"deno": {"path": None}}
+    for entry in runtimes_str.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" in entry:
+            name, _, path = entry.partition(":")
+            result[name.strip()] = {"path": path.strip() or None}
+        else:
+            result[entry] = {"path": None}
+    return result
+
+
 def _apply_bypass_opts(
     opts: dict[str, Any], *, bypass_mode_override: str | None = None
 ) -> dict[str, Any]:
@@ -329,6 +368,16 @@ def _apply_bypass_opts(
         if extra_opts:
             _deep_update(opts, extra_opts)
 
+    # --- JS runtime for n-challenge solving (yt-dlp 2026.07+ EJS system) ---
+    # Reason: without a JS runtime, yt-dlp cannot solve YouTube's n-challenge
+    # and downloads fail with "Sign in to confirm you're not a bot" or
+    # "Requested format is not available". We set this after extra args so
+    # the user can override it via STREAMDOC_YT_DLP_EXTRA_ARGS if needed,
+    # but before the caller-controlled keys in build_ydl_opts.
+    js_runtimes = settings.yt_dlp_js_runtimes
+    if js_runtimes and "js_runtimes" not in opts:
+        opts["js_runtimes"] = _parse_js_runtimes(js_runtimes)
+
     # --- Default User-Agent (lowest priority) ---
     user_agent = settings.yt_dlp_user_agent
     if user_agent:
@@ -405,9 +454,18 @@ def build_common_args(
         browser_arg = f"{browser}:{profile}" if profile else browser
         args.extend(["--cookies-from-browser", browser_arg])
 
+    # --- JS runtime for n-challenge solving (yt-dlp 2026.07+ EJS system) ---
+    # Reason: without a JS runtime, yt-dlp cannot solve YouTube's n-challenge
+    # and downloads fail with "Sign in to confirm you're not a bot" or
+    # "Requested format is not available". Node is the default since it's
+    # the most commonly installed runtime; Deno is yt-dlp's own default.
+    extra = settings.yt_dlp_extra_args
+    js_runtimes = settings.yt_dlp_js_runtimes
+    if js_runtimes and "--js-runtimes" not in (extra or ""):
+        args.extend(["--js-runtimes", js_runtimes])
+
     # --- Default user-agent (can be overridden by extra args below) ---
     user_agent = settings.yt_dlp_user_agent
-    extra = settings.yt_dlp_extra_args
     if user_agent and "--user-agent" not in (extra or ""):
         args.extend(["--user-agent", user_agent])
 
@@ -470,24 +528,57 @@ def _get_fallback_bypass_mode() -> str | None:
     return fallback
 
 
+def _get_fallback_bypass_modes() -> list[str]:
+    """Return the ordered list of fallback bypass modes to try.
+
+    Reason: ``STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE`` can be a single mode
+    or a comma-separated chain (e.g. ``"cookie,default"``). When the first
+    fallback fails (e.g. cookie DB lock), the next mode in the chain is
+    tried. The default fallback is ``"default"`` (no-auth) which is safe
+    but may hit bot detection on some videos.
+
+    NOTE: ``cookies_from_browser`` is opt-in only. Reading cookies from
+    the user's active browser profile risks getting their YouTube account
+    banned. It should never be used as an automatic fallback.
+
+    Returns:
+        Ordered list of fallback mode strings, excluding the primary mode
+        and any empty entries. Empty list if no fallback is configured.
+    """
+    fallback = settings.yt_dlp_bypass_fallback_mode
+    if not fallback:
+        return []
+    primary = settings.yt_dlp_bypass_mode
+    modes = [m.strip() for m in fallback.split(",") if m.strip()]
+    # Reason: exclude the primary mode from the fallback chain — retrying
+    # with the same mode that just failed is pointless.
+    return [m for m in modes if m != primary]
+
+
 def _log_cookie_db_lock_guidance() -> None:
     """Log actionable guidance when a cookie DB lock error is detected."""
     logger.warning(
         "Browser cookie database is locked (yt-dlp issue #7271). "
         "This happens when Chrome/Edge is running on Windows. "
-        "Options: (1) close the browser, (2) set STREAMDOC_YT_DLP_COOKIES_BROWSER=firefox, "
-        "(3) export cookies to a Netscape file and use bypass_mode=cookie, "
-        "(4) set STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE for automatic fallback."
+        "Options: (1) close the browser, (2) set STREAMDOC_YT_DLP_COOKIES_BROWSER=firefox "
+        "(Firefox does not lock its DB), (3) export cookies to a Netscape file and use "
+        "bypass_mode=cookie, (4) set STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE=default for "
+        "no-auth fallback. NOTE: cookies_from_browser with your personal profile risks "
+        "getting your YouTube account banned — use a dedicated profile if you opt in."
     )
 
 
 # Reason: YouTube's bot detection is not uniform — some channels/videos get
 # stricter challenges that the PO token alone cannot satisfy. These transient
 # error categories are candidates for an automatic fallback retry with a
-# different bypass mode (e.g. cookies_from_browser), which uses the operator's
-# signed-in browser session and is far more resilient to bot detection.
+# different bypass mode. HTTP 403 is included because it's often a PO-token
+# binding issue that a different bypass mode can resolve.
+# NOTE: cookies_from_browser is never used as an automatic fallback — reading
+# cookies from the user's active browser profile risks getting their YouTube
+# account banned. It is opt-in only via explicit STREAMDOC_YT_DLP_BYPASS_MODE
+# or STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE configuration.
 _FALLBACK_RETRY_CATEGORIES: frozenset[str] = frozenset(
-    {"cookie_db_locked", "bot_detection", "rate_limited", "login_required"}
+    {"cookie_db_locked", "bot_detection", "rate_limited", "login_required", "forbidden"}
 )
 
 
@@ -554,23 +645,30 @@ def dump_json(
     logger.debug("yt-dlp dump_json cmd: %s", " ".join(cmd))
     result = _run(cmd)
     if result.returncode != 0:
-        err = result.stderr or result.stdout or f"yt-dlp exited {result.returncode}"
-        # Reason: retry with the fallback bypass mode for infrastructure and
+        original_err = result.stderr or result.stdout or f"yt-dlp exited {result.returncode}"
+        original_category = classify_download_error(original_err)
+        # Reason: retry with the fallback bypass mode(s) for infrastructure and
         # transient YouTube errors (cookie DB lock, bot detection, rate
-        # limiting, login required). These may succeed with a different bypass
-        # strategy (e.g. cookies_from_browser uses the signed-in browser
-        # session, which is stronger against bot detection than PO token alone).
-        if _should_fallback_retry(err):
-            if is_cookie_db_lock_error(err):
+        # limiting, login required, HTTP 403). These may succeed with a
+        # different bypass strategy. The fallback chain supports multiple
+        # comma-separated modes. The default fallback is "default" (no-auth).
+        # cookies_from_browser is opt-in only (ban risk on personal profiles).
+        if _should_fallback_retry(original_err):
+            logger.warning(
+                "Primary bypass mode=%s failed for dump_json %s [%s]: %s",
+                mode, url, original_category, original_err.strip()[:300],
+            )
+            if is_cookie_db_lock_error(original_err):
                 _log_cookie_db_lock_guidance()
-            fallback = _get_fallback_bypass_mode()
-            if fallback:
+            fallback_modes = _get_fallback_bypass_modes()
+            success = False
+            for fb_mode in fallback_modes:
                 logger.info(
                     "Retrying dump_json with fallback bypass mode=%s (category=%s)",
-                    fallback,
-                    classify_download_error(err),
+                    fb_mode,
+                    original_category,
                 )
-                cmd = [binary, *build_common_args(bypass_mode_override=fallback)]
+                cmd = [binary, *build_common_args(bypass_mode_override=fb_mode)]
                 if dump_single_json:
                     cmd.append("--dump-single-json")
                 else:
@@ -580,13 +678,26 @@ def dump_json(
                 if playlist_end is not None:
                     cmd.extend(["--playlist-end", str(playlist_end)])
                 cmd.append(url)
-                result = _run(cmd)
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr or result.stdout or f"yt-dlp exited {result.returncode}")
-            else:
-                raise RuntimeError(err)
+                fallback_result = _run(cmd)
+                if fallback_result.returncode == 0:
+                    result = fallback_result
+                    success = True
+                    break
+                # Reason: this fallback failed. Log it and try the next mode.
+                fb_err = fallback_result.stderr or fallback_result.stdout or ""
+                fb_category = classify_download_error(fb_err)
+                logger.warning(
+                    "Fallback bypass mode=%s also failed for dump_json %s [%s]: %s",
+                    fb_mode, url, fb_category, fb_err.strip()[:300],
+                )
+            if not success:
+                # Reason: all fallbacks failed. Raise the ORIGINAL error
+                # (not a fallback error) because it's the real root cause.
+                # A cookie_db_locked fallback error is misleading when the
+                # real issue was bot_detection on the primary attempt.
+                raise RuntimeError(original_err)
         else:
-            raise RuntimeError(err)
+            raise RuntimeError(original_err)
     try:
         return json.loads(result.stdout)  # type: ignore[no-any-return]
     except json.JSONDecodeError as exc:
@@ -637,35 +748,72 @@ def download(url: str, output_template: str) -> subprocess.CompletedProcess:
         url,
     ]
     result = _run(cmd)
-    # Reason: retry with the fallback bypass mode for infrastructure and
+    # Reason: retry with the fallback bypass mode(s) for infrastructure and
     # transient YouTube errors (cookie DB lock, bot detection, rate limiting,
-    # login required). The PO token alone may not satisfy YouTube's bot
-    # detection for certain channels/videos; cookies_from_browser uses the
-    # operator's signed-in session and is far more resilient. Retrying once
-    # with the fallback mode avoids failing the entire download.
+    # login required, HTTP 403). The fallback chain supports multiple
+    # comma-separated modes — if the first fallback fails (e.g. cookie DB
+    # lock), the next mode is tried. The default fallback is "default"
+    # (no-auth) which is safe but may hit bot detection on some videos.
+    # cookies_from_browser is opt-in only (ban risk on personal profiles).
     if result.returncode != 0:
-        err = result.stderr or result.stdout or ""
-        if _should_fallback_retry(err):
-            if is_cookie_db_lock_error(err):
+        original_err = result.stderr or result.stdout or ""
+        original_category = classify_download_error(original_err)
+        if _should_fallback_retry(original_err):
+            # Reason: log the original error at WARNING so the operator can
+            # see WHY the primary bypass mode failed, even if a fallback
+            # succeeds. Without this, the original error is invisible.
+            logger.warning(
+                "Primary bypass mode=%s failed for %s [%s]: %s",
+                mode, url, original_category, original_err.strip()[:300],
+            )
+            if is_cookie_db_lock_error(original_err):
                 _log_cookie_db_lock_guidance()
-            fallback = _get_fallback_bypass_mode()
-            if fallback:
+            fallback_modes = _get_fallback_bypass_modes()
+            for fb_mode in fallback_modes:
                 logger.info(
                     "Retrying download with fallback bypass mode=%s (category=%s)",
-                    fallback,
-                    classify_download_error(err),
+                    fb_mode,
+                    original_category,
                 )
                 cmd = [
                     binary,
                     *build_common_args(
-                        include_progress=True, bypass_mode_override=fallback
+                        include_progress=True, bypass_mode_override=fb_mode
                     ),
                     "-f", _format_selector(),
                     "--merge-output-format", "mp4",
                     "-o", output_template,
                     url,
                 ]
-                result = _run(cmd)
+                fallback_result = _run(cmd)
+                if fallback_result.returncode == 0:
+                    return fallback_result
+                # Reason: this fallback failed. Log it and try the next mode
+                # in the chain. If this fallback hit a cookie DB lock, skip
+                # the cookie-DB-lock guidance (already logged above) and move
+                # to the next mode silently.
+                fb_err = fallback_result.stderr or fallback_result.stdout or ""
+                fb_category = classify_download_error(fb_err)
+                logger.warning(
+                    "Fallback bypass mode=%s also failed for %s [%s]: %s",
+                    fb_mode, url, fb_category, fb_err.strip()[:300],
+                )
+                # Reason: if this fallback failed with cookie_db_locked, don't
+                # return it as the final error — the ORIGINAL error is the real
+                # root cause. Save the fallback result only if it's a different
+                # category (more actionable than the original).
+                if fb_category != "cookie_db_locked":
+                    result = fallback_result
+            # Reason: if we get here, all fallbacks failed. If none of them
+            # returned a non-cookie-db-locked error, result still has the
+            # original error (which is the real root cause).
+            if result.returncode != 0 and classify_download_error(
+                result.stderr or result.stdout or ""
+            ) == "cookie_db_locked":
+                result.stderr = original_err
+                result.stdout = ""
+        # Reason: non-transient errors (permanent or unclassified) skip the
+        # fallback chain — the original result already has the right error.
     return result
 
 
