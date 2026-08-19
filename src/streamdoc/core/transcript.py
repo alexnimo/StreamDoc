@@ -174,6 +174,8 @@ def _transcript_from_yt_dlp_subtitles(video_id: str, languages: Sequence[str]) -
     mode = settings.yt_dlp_bypass_mode
     if mode == "po_token":
         opts["extractor_args"] = {"youtube": {"player_client": ["default", "web"], "pot_provider": ["bgutil"]}}
+    if mode == "web_embedded":
+        opts["extractor_args"] = {"youtube": {"player_client": ["web_embedded"]}}
     cookie = _resolve_cookie_path()
     if cookie and mode == "cookie":
         opts["cookiefile"] = str(cookie)

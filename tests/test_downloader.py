@@ -9,6 +9,8 @@ from streamdoc.core.downloader import (
     is_permanent_error,
     is_cookie_db_lock_error,
     DownloadResult,
+    _is_http_403_error,
+    _hls_format_selector,
 )
 
 
@@ -131,6 +133,39 @@ def test_build_ydl_opts_cookies_from_browser_with_profile(monkeypatch):
     opts = build_ydl_opts()
 
     assert opts["cookiesfrombrowser"] == ("edge", "Profile 1", None, None)
+
+
+# ---------------------------------------------------------------------------
+# web_embedded bypass mode
+# ---------------------------------------------------------------------------
+
+def test_build_ydl_opts_web_embedded_mode(monkeypatch):
+    """web_embedded mode should set player_client to web_embedded only."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "web_embedded")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+
+    opts = build_ydl_opts()
+
+    assert opts["extractor_args"]["youtube"]["player_client"] == ["web_embedded"]
+
+
+def test_build_common_args_web_embedded_mode(monkeypatch):
+    """CLI args should include --extractor-args with player_client=web_embedded."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "web_embedded")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+
+    args = build_common_args()
+
+    # Reason: --extractor-args is a flag+value pair; find the pair that
+    # sets player_client=web_embedded.
+    ea_indices = [i for i, a in enumerate(args) if a == "--extractor-args"]
+    assert len(ea_indices) >= 1
+    found = any(
+        "player_client=web_embedded" in args[i + 1] for i in ea_indices
+    )
+    assert found, f"Expected player_client=web_embedded in args: {args}"
 
 
 def test_build_common_args_cookies_from_browser(monkeypatch):
@@ -491,6 +526,7 @@ def test_download_preserves_original_error_when_fallback_hits_cookie_lock(monkey
     from streamdoc.core.downloader import download
     from unittest.mock import MagicMock
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "cookies_from_browser,default")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -524,3 +560,106 @@ def test_download_preserves_original_error_when_fallback_hits_cookie_lock(monkey
     # cookie_db_locked (which was just the fallback hitting Chrome's lock).
     from streamdoc.core.downloader import classify_download_error
     assert classify_download_error(result.stderr or "") == "bot_detection"
+
+
+# ---------------------------------------------------------------------------
+# HTTP 403 classification and HLS fallback
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("stderr,expected", [
+    ("ERROR: unable to download video data: HTTP Error 403: Forbidden", "http_403"),
+    ("HTTP Error 403: Forbidden", "http_403"),
+    ("403 Forbidden", "http_403"),
+])
+def test_classify_http_403(stderr, expected):
+    """403 errors should be classified as http_403 (transient, HLS-retriable)."""
+    assert classify_download_error(stderr) == expected
+
+
+@pytest.mark.parametrize("stderr", [
+    "ERROR: unable to download video data: HTTP Error 403: Forbidden",
+    "403 Forbidden",
+])
+def test_is_http_403_error_true(stderr):
+    """_is_http_403_error should detect 403 media download errors."""
+    assert _is_http_403_error(stderr) is True
+
+
+@pytest.mark.parametrize("stderr", [
+    "Sign in to confirm you're not a bot",
+    "Private video",
+    "Could not copy Chrome cookie database",
+    "Some random error",
+])
+def test_is_http_403_error_false(stderr):
+    """_is_http_403_error should not match non-403 errors."""
+    assert _is_http_403_error(stderr) is False
+
+
+def test_hls_format_selector_with_resolution(monkeypatch):
+    """_hls_format_selector should produce a height-filtered best selector."""
+    monkeypatch.setattr(settings, "video_resolution", "720")
+    assert _hls_format_selector() == "best[height<=720]/best"
+
+
+def test_hls_format_selector_best(monkeypatch):
+    """_hls_format_selector should handle the 'best' resolution setting."""
+    monkeypatch.setattr(settings, "video_resolution", "best")
+    sel = _hls_format_selector()
+    assert "best" in sel
+
+
+def test_download_hls_fallback_on_403(monkeypatch, tmp_path):
+    """download() should retry with HLS fallback when primary fails with 403."""
+    from streamdoc.core.downloader import download
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "default")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", None)
+    monkeypatch.setattr(settings, "yt_dlp_hls_fallback_enabled", True)
+    monkeypatch.setattr(settings, "yt_dlp_js_runtimes", "node")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "video_resolution", "1080")
+
+    call_args: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        call_args.append(cmd)
+        s = " ".join(cmd)
+        if "web_safari" not in s:
+            # Primary DASH attempt: 403
+            return MagicMock(returncode=1, stderr="ERROR: unable to download video data: HTTP Error 403: Forbidden", stdout="")
+        # HLS fallback: success
+        return MagicMock(returncode=0, stderr="", stdout="")
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", str(tmp_path / "%(title)s.%(ext)s"))
+
+    assert result.returncode == 0
+    # Reason: two calls — primary DASH + HLS fallback (no legacy fallback mode)
+    assert len(call_args) == 2
+    assert "web_safari" in " ".join(call_args[1])
+
+
+def test_download_hls_fallback_disabled(monkeypatch, tmp_path):
+    """download() should NOT retry with HLS when the setting is disabled."""
+    from streamdoc.core.downloader import download
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "default")
+    monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", None)
+    monkeypatch.setattr(settings, "yt_dlp_hls_fallback_enabled", False)
+
+    call_count = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        call_count["n"] += 1
+        return MagicMock(returncode=1, stderr="ERROR: unable to download video data: HTTP Error 403: Forbidden", stdout="")
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", str(tmp_path / "%(title)s.%(ext)s"))
+
+    assert result.returncode == 1
+    assert call_count["n"] == 1

@@ -40,8 +40,33 @@ class Settings(BaseSettings):
     # needing browser cookies. The container is auto-started on app
     # startup if Docker is available; otherwise the app falls back to
     # the configured fallback mode (default: no-auth).
-    # Options: po_token | cookies_from_browser | cookie | default
+    # Options: po_token | web_embedded | cookies_from_browser | cookie | default
+    # web_embedded: Uses the WEB_EMBEDDED_PLAYER client which bypasses
+    #   IP-level 403 blocks on DASH/HTTPS media downloads and gets
+    #   full-quality URLs (up to 4K) without PO tokens or cookies.
+    #   Requires a JS runtime (node/deno) for n-challenge solving.
+    #   Does not work for videos with embedding disabled.
     yt_dlp_bypass_mode: str = "po_token"
+    # Reason: ordered comma-separated list of bypass modes to try in
+    # sequence. Each mode is tried in order; on retriable failure (403,
+    # bot detection, rate limit, cookie DB lock) the next mode is tried.
+    # On success or permanent error (private/deleted) the chain stops.
+    # When non-empty, this takes precedence over yt_dlp_bypass_mode and
+    # yt_dlp_bypass_fallback_mode (those become backward-compat fallbacks
+    # used only when the chain is empty).
+    # Supported modes:
+    #   web_embedded — full quality (up to 4K), no PO token, no cookies;
+    #     bypasses IP 403; needs JS runtime; fails on embedding-disabled.
+    #   po_token — PO token via bgutil container; needs Docker; SABR-only
+    #     on web client (formats may be skipped).
+    #   cookie — Netscape jar at yt_dlp_cookiejar_path; needs manual export.
+    #   cookies_from_browser — reads live browser session; fails if browser
+    #     is running on Windows (cookie DB locked). OPT-IN: ban risk on
+    #     personal profiles — use a dedicated browser profile.
+    #   hls — web_safari client + HLS formats; bypasses IP 403 but capped
+    #     at 480p; needs JS runtime; quality-degraded last resort.
+    #   default — yt-dlp built-in client selection; no bypass.
+    yt_dlp_bypass_chain: str = "web_embedded,po_token,cookies_from_browser,hls"
     yt_dlp_cookiejar_path: str | None = "data/cookies/youtube.txt"
     yt_dlp_pot_provider: str | None = None
     yt_dlp_user_agent: str | None = None
@@ -55,6 +80,14 @@ class Settings(BaseSettings):
     # Options: node | deno | bun | quickjs | comma-separated list (e.g. "node,deno")
     # Set to empty string to disable (not recommended — downloads will fail).
     yt_dlp_js_runtimes: str = "node"
+    # Reason: YouTube periodically IP-blocks DASH/HTTPS media downloads
+    # (returns HTTP 403 on the format URL) while HLS (m3u8) formats from
+    # the web_safari client remain accessible. When enabled, the download
+    # function retries with the web_safari client + HLS format selector
+    # after a 403 error on the primary DASH download. HLS is typically
+    # limited to 480p, so this is a quality-degraded fallback, not a
+    # primary path. Disable if you prefer to fail fast on 403.
+    yt_dlp_hls_fallback_enabled: bool = True
     # Reason: when bypass_mode=cookies_from_browser, yt-dlp reads cookies
     # directly from the user's signed-in browser session via
     # --cookies-from-browser. This avoids the need for a separate PO-token
@@ -74,12 +107,7 @@ class Settings(BaseSettings):
     # or when po_token mode is active but Docker is not available to run the
     # POT provider container. The default is "default" (no-auth) which is
     # safe but may hit bot detection on some videos.
-    # Can be a single mode or a comma-separated chain (tried in order):
-    #   "default" — no-auth last resort (safe, may hit bot detection)
-    #   "cookie" — pre-exported Netscape cookie jar (safe, requires setup)
-    #   "cookies_from_browser" — OPT-IN, ban risk on personal profiles!
-    #   "cookie,default" — try cookie jar first, then no-auth
-    # Options: po_token | cookie | cookies_from_browser | default | (empty = disabled)
+    # Options: po_token | web_embedded | cookie | cookies_from_browser | default | (empty = disabled)
     # WARNING: cookies_from_browser reads from the user's ACTIVE browser
     # profile and can get their YouTube account banned. It should never be
     # used as an automatic fallback — only set it explicitly if you accept

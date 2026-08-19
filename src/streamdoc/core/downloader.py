@@ -43,11 +43,11 @@ _TRANSIENT_ERROR_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("bot_detection", re.compile(r"Sign in to confirm.*not a bot|confirm you.*not a bot", re.IGNORECASE)),
     ("rate_limited", re.compile(r"rate[- ]limit|too many requests|429", re.IGNORECASE)),
     ("login_required", re.compile(r"Sign in|login required", re.IGNORECASE)),
-    # Reason: HTTP 403 Forbidden is often a PO-token/format issue — YouTube
-    # rejects the streaming URL because the GVS PO token wasn't bound correctly
-    # or the format requires authentication. Retrying with a different bypass
-    # mode (e.g. cookies_from_browser) often resolves it.
-    ("forbidden", re.compile(r"HTTP Error 403|403: Forbidden|forbidden", re.IGNORECASE)),
+    # Reason: YouTube IP-blocks DASH/HTTPS media downloads (returns 403 on
+    # the format URL) while HLS (m3u8) formats from web_safari remain
+    # accessible. This is transient/retriable via the bypass chain or HLS
+    # fallback path.
+    ("http_403", re.compile(r"HTTP Error 403|403 Forbidden|unable to download video data", re.IGNORECASE)),
 ]
 # Reason: cookie DB lock is a Windows-specific infrastructure error, not a
 # video-specific error. When Chrome (or Edge) is running, it holds an
@@ -69,7 +69,8 @@ def classify_download_error(stderr: str) -> str:
       - ``"bot_detection"``: YouTube bot-detection challenge (transient).
       - ``"rate_limited"``: Rate limiting (transient).
       - ``"login_required"``: Sign-in required (transient, fixable with cookies).
-      - ``"forbidden"``: HTTP 403 Forbidden (transient — often a PO-token/format issue).
+      - ``"http_403"``: HTTP 403 on media download — YouTube IP-blocks DASH
+        formats; retriable via bypass chain or HLS fallback (web_safari client).
       - ``"cookie_db_locked"``: Browser cookie DB locked (infra error, retriable
         with a different bypass mode).
       - ``"other"``: Unclassified error.
@@ -253,7 +254,7 @@ def _parse_extra_args_to_opts(extra_args: str | None) -> dict[str, Any]:
     return diff
 
 
-def _parse_js_runtimes(runtimes_str: str) -> dict[str, dict[str, Any]]:
+def _parse_js_runtimes(runtimes: str | None) -> dict[str, dict[str, Any]]:
     """Parse a comma-separated JS runtimes string into yt-dlp's dict format.
 
     Reason: yt-dlp's Python API expects ``js_runtimes`` as a dict mapping
@@ -263,24 +264,28 @@ def _parse_js_runtimes(runtimes_str: str) -> dict[str, dict[str, Any]]:
     Deno (yt-dlp's default) so both can be used if available.
 
     Args:
-        runtimes_str: Comma-separated runtime names, optionally with
+        runtimes: Comma-separated runtime names, optionally with
             ``:path`` suffix (e.g. ``"node"``, ``"node,deno"``,
-            ``"node:/usr/bin/node"``).
+            ``"node:/usr/bin/node"``). Empty/None returns empty dict.
 
     Returns:
         Dict suitable for ``YoutubeDL(js_runtimes=...)``.
     """
+    if not runtimes:
+        return {}
     # Reason: always include deno (yt-dlp's default) so it's used if
     # available, even when the user only specifies node. This matches
     # the CLI behaviour where --js-runtimes node adds node alongside deno.
     result: dict[str, dict[str, Any]] = {"deno": {"path": None}}
-    for entry in runtimes_str.split(","):
-        entry = entry.strip()
+    for raw in runtimes.split(","):
+        entry = raw.strip()
         if not entry:
             continue
         if ":" in entry:
             name, _, path = entry.partition(":")
-            result[name.strip()] = {"path": path.strip() or None}
+            name = name.strip()
+            if name:
+                result[name] = {"path": path.strip() or None}
         else:
             result[entry] = {"path": None}
     return result
@@ -346,6 +351,22 @@ def _apply_bypass_opts(
                 settings.yt_dlp_cookiejar_path,
             )
 
+    # --- web_embedded bypass (base layer) ---
+    # Reason: YouTube IP-blocks DASH/HTTPS media downloads mid-stream
+    # (HTTP 403 after ~20MB) for the android_vr client, and forces SABR
+    # streaming for the web client (no direct format URLs). The
+    # web_embedded client (WEB_EMBEDDED_PLAYER) appears as embedded player
+    # traffic and gets full-quality HTTPS URLs (up to 4K) that complete
+    # without 403. It does NOT require a PO token or cookies. It requires
+    # a JS runtime (node/deno) to solve the n-challenge for format URLs.
+    # Limitation: does not work for videos with embedding disabled.
+    if mode == "web_embedded":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web_embedded"],
+            },
+        }
+
     # --- Cookies-from-browser bypass (base layer) ---
     # Reason: reads cookies directly from the user's signed-in browser
     # session. This is the most reliable way to bypass YouTube's bot
@@ -386,6 +407,13 @@ def _apply_bypass_opts(
         # a default User-Agent if none was provided by extra args.
         if not headers.get("User-Agent"):
             headers["User-Agent"] = user_agent
+
+    # --- JS runtimes (yt-dlp 2026.07+ n-challenge solver) ---
+    # Reason: only set if not already provided via extra args, so the
+    # user's explicit --js-runtimes / --no-js-runtimes wins.
+    js_runtimes = _parse_js_runtimes(settings.yt_dlp_js_runtimes)
+    if js_runtimes and "js_runtimes" not in opts:
+        opts["js_runtimes"] = js_runtimes
 
     return opts
 
@@ -445,6 +473,17 @@ def build_common_args(
         else:
             logger.warning("bypass_mode=cookie but cookie jar not found at %s", settings.yt_dlp_cookiejar_path)
 
+    if mode == "web_embedded":
+        # Reason: web_embedded client bypasses IP-level 403 blocks on
+        # DASH/HTTPS media downloads and gets full-quality URLs (up to 4K)
+        # without requiring a PO token or cookies. Requires a JS runtime
+        # (node/deno) for n-challenge solving. Does not work for videos
+        # with embedding disabled.
+        args.extend([
+            "--extractor-args",
+            "youtube:player_client=web_embedded",
+        ])
+
     if mode == "cookies_from_browser":
         browser = settings.yt_dlp_cookies_browser or "chrome"
         profile = settings.yt_dlp_cookies_browser_profile
@@ -468,6 +507,16 @@ def build_common_args(
     user_agent = settings.yt_dlp_user_agent
     if user_agent and "--user-agent" not in (extra or ""):
         args.extend(["--user-agent", user_agent])
+
+    # --- JS runtimes (yt-dlp 2026.07+ n-challenge solver) ---
+    # Reason: only append if not already supplied via extra args, so the
+    # user's explicit --js-runtimes / --no-js-runtimes wins.
+    js_runtimes = settings.yt_dlp_js_runtimes
+    if js_runtimes and "--js-runtimes" not in (extra or ""):
+        for raw in js_runtimes.split(","):
+            entry = raw.strip()
+            if entry:
+                args.extend(["--js-runtimes", entry])
 
     # --- Extra raw args from env (highest priority, appended last) ---
     if extra:
@@ -578,7 +627,7 @@ def _log_cookie_db_lock_guidance() -> None:
 # account banned. It is opt-in only via explicit STREAMDOC_YT_DLP_BYPASS_MODE
 # or STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE configuration.
 _FALLBACK_RETRY_CATEGORIES: frozenset[str] = frozenset(
-    {"cookie_db_locked", "bot_detection", "rate_limited", "login_required", "forbidden"}
+    {"cookie_db_locked", "bot_detection", "rate_limited", "login_required", "http_403"}
 )
 
 
@@ -597,6 +646,90 @@ def _should_fallback_retry(stderr: str) -> bool:
         True if the error category is in ``_FALLBACK_RETRY_CATEGORIES``.
     """
     return classify_download_error(stderr) in _FALLBACK_RETRY_CATEGORIES
+
+
+def _is_http_403_error(stderr: str) -> bool:
+    """Return True if the error is an HTTP 403 on media download.
+
+    Reason: YouTube IP-blocks DASH/HTTPS format URLs (returns 403 when
+    yt-dlp tries to download the actual video bytes), while HLS (m3u8)
+    formats from the ``web_safari`` client remain accessible. This
+    detection triggers the HLS fallback retry path.
+    """
+    return classify_download_error(stderr) == "http_403"
+
+
+def _hls_format_selector() -> str:
+    """Build a format selector that prefers HLS formats.
+
+    Reason: when YouTube IP-blocks DASH downloads, the only working formats
+    are HLS (m3u8) from the ``web_safari`` client. HLS formats are
+    progressive (combined audio+video) and typically capped at 480p, so
+    we use a simple height-filtered ``best`` selector rather than the
+    DASH-style ``bestvideo+bestaudio`` selector.
+    """
+    res = settings.video_resolution
+    if res == "best":
+        return "best/bestvideo+bestaudio"
+    height = int(res)
+    # Reason: HLS formats from web_safari are progressive (audio+video
+    # combined), so we use a single-stream selector. The final /best
+    # fallback catches cases where the height filter excludes all HLS
+    # formats but a lower-quality one is still available.
+    return f"best[height<={height}]/best"
+
+
+def _build_hls_fallback_cmd(
+    binary: str, output_template: str, url: str
+) -> list[str]:
+    """Build a yt-dlp command that uses the web_safari HLS client.
+
+    Reason: the ``web_safari`` client provides HLS (m3u8) formats that
+    bypass YouTube's IP-level DASH download blocks. We override the
+    player_client to ``web_safari`` and use an HLS-compatible format
+    selector. The JS runtime (node) is still required for the n-challenge
+    solver. PO-token bypass args are omitted because web_safari HLS
+    formats do not require a GVS PO token (per yt-dlp PO Token Guide).
+
+    Args:
+        binary: Path to the yt-dlp binary.
+        output_template: The ``-o`` output template.
+        url: The video URL to download.
+
+    Returns:
+        A complete yt-dlp command list (without the URL appended yet).
+    """
+    args: list[str] = [
+        binary,
+        "--no-warnings",
+        "--progress",
+        "--newline",
+        # Reason: web_safari provides HLS (m3u8) formats that bypass
+        # YouTube's IP-level DASH download blocks.
+        "--extractor-args",
+        "youtube:player_client=web_safari",
+    ]
+
+    # JS runtimes (still needed for n-challenge solver)
+    js_runtimes = settings.yt_dlp_js_runtimes
+    if js_runtimes:
+        for raw in js_runtimes.split(","):
+            entry = raw.strip()
+            if entry:
+                args.extend(["--js-runtimes", entry])
+
+    # Extra raw args (highest priority, appended last)
+    extra = settings.yt_dlp_extra_args
+    if extra:
+        args.extend(shlex.split(extra))
+
+    args.extend([
+        "-f", _hls_format_selector(),
+        "--merge-output-format", "mp4",
+        "-o", output_template,
+        url,
+    ])
+    return args
 
 
 def dump_json(
@@ -725,6 +858,12 @@ def download(url: str, output_template: str) -> subprocess.CompletedProcess:
     configured via ``STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE``, the download
     is automatically retried with the fallback mode.
 
+    If the download fails with HTTP 403 (YouTube IP-blocking DASH/HTTPS
+    media URLs) and ``STREAMDOC_YT_DLP_HLS_FALLBACK_ENABLED`` is True, the
+    download is retried with the ``web_safari`` client which provides HLS
+    (m3u8) formats that bypass the IP block. HLS is typically limited to
+    480p, so this is a quality-degraded fallback.
+
     Args:
         url: Video URL.
         output_template: ``-o`` template string.
@@ -814,6 +953,17 @@ def download(url: str, output_template: str) -> subprocess.CompletedProcess:
                 result.stdout = ""
         # Reason: non-transient errors (permanent or unclassified) skip the
         # fallback chain — the original result already has the right error.
+    # Reason: legacy HLS fallback for backward compat. When the bypass chain
+    # is active, hls is a chain entry and this block never runs.
+    if result.returncode != 0 and settings.yt_dlp_hls_fallback_enabled:
+        err = result.stderr or result.stdout or ""
+        if _is_http_403_error(err):
+            logger.warning(
+                "Download failed with HTTP 403 (YouTube IP-blocks DASH). "
+                "Retrying with web_safari HLS fallback (quality may be reduced)."
+            )
+            hls_cmd = _build_hls_fallback_cmd(binary, output_template, url)
+            result = _run(hls_cmd)
     return result
 
 

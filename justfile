@@ -59,6 +59,9 @@ help:
     @echo "    just update-deps  sync Python + JS deps"
     @echo "    just update-tools upgrade yt-dlp, ffmpeg-python, faster-whisper, twitter-cli, rdt-cli"
     @echo "    just sync         upgrade + sync all Python packages and uv tools"
+    @echo ""
+    @echo "  Tools"
+    @echo "    just yt-dlp <args> run yt-dlp from the project venv (e.g. just yt-dlp --rm-cache-dir)"
 
 # ── Setup ─────────────────────────────────────────────────────────────
 
@@ -206,3 +209,17 @@ sync: stop-api
     uv lock --upgrade
     uv sync --extra dev
     uv tool upgrade
+
+# ── Tools ─────────────────────────────────────────────────────────────
+
+# Run yt-dlp from the project venv, forwarding all arguments.
+# Examples:
+#   just yt-dlp --rm-cache-dir
+#   just yt-dlp -f "best" https://example.com/video
+#   just yt-dlp --version
+# Reason: calls the venv binary directly (not `uv run`) so it works even when
+# the API server is running and holding streamdoc-api.exe locked, which would
+# otherwise make `uv run` fail its venv-sync step. Uses the python -m form so
+# it works cross-platform without worrying about .exe / path separators.
+yt-dlp *ARGS:
+    .venv\Scripts\python.exe -m yt_dlp {{ARGS}}

@@ -368,6 +368,8 @@ class SettingsOut(BaseModel):
     yt_dlp_cookies_browser_profile: str | None = None
     yt_dlp_user_agent: str | None = None
     yt_dlp_extra_args: str | None = None
+    yt_dlp_js_runtimes: str | None = None
+    yt_dlp_hls_fallback_enabled: bool = True
     yt_dlp_update_strategy: str = "managed"
     video_resolution: str = "1080"
     video_format_fallback: bool = True
@@ -466,6 +468,8 @@ class SettingsUpdate(BaseModel):
     yt_dlp_cookies_browser_profile: str | None = None
     yt_dlp_user_agent: str | None = None
     yt_dlp_extra_args: str | None = None
+    yt_dlp_js_runtimes: str | None = None
+    yt_dlp_hls_fallback_enabled: bool | None = None
     yt_dlp_update_strategy: str | None = None
     video_resolution: str | None = None
     video_format_fallback: bool | None = None
