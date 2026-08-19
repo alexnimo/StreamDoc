@@ -107,20 +107,20 @@ export function BypassChainEditor({ value, onChange }: BypassChainEditorProps) {
                 {index + 1}
               </span>
 
-              {/* Mode badge with tooltip */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="cursor-help">
-                    <Badge variant="secondary" className="gap-1 text-xs">
-                      {info.label}
+              {/* Mode badge with tooltip on the info icon only */}
+              <Badge variant="secondary" className="gap-1 text-xs">
+                {info.label}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="cursor-help">
                       <Info className="h-3 w-3 text-muted-foreground" />
-                    </Badge>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs text-xs">
-                  {info.tooltip}
-                </TooltipContent>
-              </Tooltip>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs text-xs">
+                    {info.tooltip}
+                  </TooltipContent>
+                </Tooltip>
+              </Badge>
 
               {/* Spacer */}
               <div className="flex-1" />
