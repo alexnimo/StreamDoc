@@ -363,6 +363,7 @@ class SettingsOut(BaseModel):
     notebooklm_upload_text_only: bool = False
     yt_dlp_path: str | None = None
     yt_dlp_bypass_mode: str = "default"
+    yt_dlp_bypass_chain: str = "web_embedded,po_token,cookies_from_browser,hls"
     yt_dlp_cookiejar_path: str | None = None
     yt_dlp_cookies_browser: str | None = "chrome"
     yt_dlp_cookies_browser_profile: str | None = None
@@ -463,6 +464,7 @@ class SettingsUpdate(BaseModel):
     notebooklm_upload_text_only: bool | None = None
     yt_dlp_path: str | None = None
     yt_dlp_bypass_mode: str | None = None
+    yt_dlp_bypass_chain: str | None = None
     yt_dlp_cookiejar_path: str | None = None
     yt_dlp_cookies_browser: str | None = None
     yt_dlp_cookies_browser_profile: str | None = None

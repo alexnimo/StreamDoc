@@ -11,6 +11,8 @@ from streamdoc.core.downloader import (
     DownloadResult,
     _is_http_403_error,
     _hls_format_selector,
+    _resolve_bypass_chain,
+    SUPPORTED_BYPASS_MODES,
 )
 
 
@@ -168,6 +170,88 @@ def test_build_common_args_web_embedded_mode(monkeypatch):
     assert found, f"Expected player_client=web_embedded in args: {args}"
 
 
+# ---------------------------------------------------------------------------
+# HLS bypass mode
+# ---------------------------------------------------------------------------
+
+def test_build_ydl_opts_hls_mode(monkeypatch):
+    """hls mode should set player_client to web_safari."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "hls")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+
+    opts = build_ydl_opts()
+
+    assert opts["extractor_args"]["youtube"]["player_client"] == ["web_safari"]
+
+
+def test_build_common_args_hls_mode(monkeypatch):
+    """CLI args should include --extractor-args with player_client=web_safari."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "hls")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+
+    args = build_common_args()
+
+    ea_indices = [i for i, a in enumerate(args) if a == "--extractor-args"]
+    assert len(ea_indices) >= 1
+    found = any(
+        "player_client=web_safari" in args[i + 1] for i in ea_indices
+    )
+    assert found, f"Expected player_client=web_safari in args: {args}"
+
+
+# ---------------------------------------------------------------------------
+# Bypass chain resolution
+# ---------------------------------------------------------------------------
+
+def test_resolve_bypass_chain_default(monkeypatch):
+    """Default chain setting should parse into the expected ordered list."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded,po_token,cookies_from_browser,hls")
+    chain = _resolve_bypass_chain()
+    assert chain == ["web_embedded", "po_token", "cookies_from_browser", "hls"]
+
+
+def test_resolve_bypass_chain_empty(monkeypatch):
+    """Empty chain setting should return empty list (legacy fallback)."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
+    chain = _resolve_bypass_chain()
+    assert chain == []
+
+
+def test_resolve_bypass_chain_whitespace(monkeypatch):
+    """Chain with extra whitespace should be trimmed cleanly."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", " web_embedded , po_token , hls ")
+    chain = _resolve_bypass_chain()
+    assert chain == ["web_embedded", "po_token", "hls"]
+
+
+def test_resolve_bypass_chain_filters_unknown(monkeypatch):
+    """Unknown modes should be silently filtered out, keeping valid ones."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded,bogus_mode,po_token")
+    chain = _resolve_bypass_chain()
+    assert chain == ["web_embedded", "po_token"]
+
+
+def test_resolve_bypass_chain_single_mode(monkeypatch):
+    """A single mode in the chain should work."""
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded")
+    chain = _resolve_bypass_chain()
+    assert chain == ["web_embedded"]
+
+
+def test_resolve_bypass_chain_all_supported(monkeypatch):
+    """All supported modes should be accepted."""
+    monkeypatch.setattr(
+        settings, "yt_dlp_bypass_chain",
+        ",".join(sorted(SUPPORTED_BYPASS_MODES)),
+    )
+    chain = _resolve_bypass_chain()
+    assert len(chain) == len(SUPPORTED_BYPASS_MODES)
+    for mode in chain:
+        assert mode in SUPPORTED_BYPASS_MODES
+
+
 def test_build_common_args_cookies_from_browser(monkeypatch):
     """CLI args should include --cookies-from-browser with the right browser."""
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "cookies_from_browser")
@@ -297,6 +381,7 @@ def test_download_retries_with_fallback_on_cookie_db_lock(monkeypatch):
     """download() should retry with fallback mode when cookie DB is locked."""
     from streamdoc.core.downloader import download
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "default")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -326,6 +411,7 @@ def test_download_no_retry_without_fallback_mode(monkeypatch):
     """download() should not retry if no fallback mode is configured."""
     from streamdoc.core.downloader import download
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", None)
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -351,6 +437,7 @@ def test_download_no_retry_on_permanent_error(monkeypatch):
     """download() should not retry on permanent errors (e.g. members-only)."""
     from streamdoc.core.downloader import download
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "default")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -383,6 +470,7 @@ def test_download_retries_with_fallback_on_bot_detection(monkeypatch):
     """
     from streamdoc.core.downloader import download
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -419,6 +507,7 @@ def test_dump_json_retries_with_fallback_on_cookie_db_lock(monkeypatch):
     import json as _json
     from streamdoc.core.downloader import dump_json
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "default")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -447,6 +536,7 @@ def test_dump_json_retries_with_fallback_on_bot_detection(monkeypatch):
     import json as _json
     from streamdoc.core.downloader import dump_json
 
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "")
     monkeypatch.setattr(settings, "yt_dlp_bypass_mode", "po_token")
     monkeypatch.setattr(settings, "yt_dlp_bypass_fallback_mode", "cookies_from_browser")
     monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
@@ -662,4 +752,98 @@ def test_download_hls_fallback_disabled(monkeypatch, tmp_path):
         result = download("https://youtube.com/watch?v=test", str(tmp_path / "%(title)s.%(ext)s"))
 
     assert result.returncode == 1
+    assert call_count["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# download() bypass chain iteration
+# ---------------------------------------------------------------------------
+
+def test_download_chain_iterates_modes(monkeypatch):
+    """download() should try each chain mode in order until one succeeds."""
+    from streamdoc.core.downloader import download
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded,po_token,hls")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+    monkeypatch.setattr(settings, "yt_dlp_js_runtimes", "node")
+    monkeypatch.setattr(settings, "video_resolution", "1080")
+    monkeypatch.setattr(settings, "yt_dlp_pot_provider", "bgutil")
+    monkeypatch.setattr(settings, "pot_provider_url", "http://127.0.0.1:4416")
+
+    call_modes: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        s = " ".join(cmd)
+        if "web_embedded" in s:
+            call_modes.append("web_embedded")
+            return MagicMock(returncode=1, stderr="HTTP Error 403: Forbidden", stdout="")
+        if "pot_provider" in s or "bgutil" in s:
+            call_modes.append("po_token")
+            return MagicMock(returncode=1, stderr="Sign in to confirm you're not a bot", stdout="")
+        if "web_safari" in s:
+            call_modes.append("hls")
+            return MagicMock(returncode=0, stderr="", stdout="")
+        call_modes.append("unknown")
+        return MagicMock(returncode=1, stderr="error", stdout="")
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", "%(id)s.%(ext)s")
+
+    assert result.returncode == 0
+    assert call_modes == ["web_embedded", "po_token", "hls"]
+
+
+def test_download_chain_stops_on_permanent_error(monkeypatch):
+    """download() should stop the chain on permanent errors (members-only)."""
+    from streamdoc.core.downloader import download
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded,po_token,hls")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+    monkeypatch.setattr(settings, "yt_dlp_js_runtimes", "node")
+    monkeypatch.setattr(settings, "video_resolution", "1080")
+
+    call_count = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        call_count["n"] += 1
+        return MagicMock(
+            returncode=1,
+            stderr="Join this channel to get access to members-only content",
+            stdout="",
+        )
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", "%(id)s.%(ext)s")
+
+    # Reason: permanent error on first mode should stop the chain — only
+    # one call, not three.
+    assert call_count["n"] == 1
+    assert result.returncode == 1
+
+
+def test_download_chain_first_mode_success(monkeypatch):
+    """download() should stop after the first successful mode."""
+    from streamdoc.core.downloader import download
+
+    monkeypatch.setattr(settings, "yt_dlp_bypass_chain", "web_embedded,po_token,hls")
+    monkeypatch.setattr(settings, "yt_dlp_extra_args", None)
+    monkeypatch.setattr(settings, "yt_dlp_user_agent", None)
+    monkeypatch.setattr(settings, "yt_dlp_js_runtimes", "node")
+    monkeypatch.setattr(settings, "video_resolution", "1080")
+
+    call_count = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        call_count["n"] += 1
+        return MagicMock(returncode=0, stderr="", stdout="")
+
+    with patch("streamdoc.core.downloader._run", side_effect=fake_run), \
+         patch("streamdoc.core.downloader._yt_dlp_binary", return_value="yt-dlp"):
+        result = download("https://youtube.com/watch?v=test", "%(id)s.%(ext)s")
+
+    assert result.returncode == 0
     assert call_count["n"] == 1

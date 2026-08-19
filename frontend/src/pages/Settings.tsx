@@ -11,6 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { PluginUpdates } from '@/components/PluginUpdates'
+import { BypassChainEditor } from '@/components/BypassChainEditor'
 
 interface SettingsState {
   [key: string]: string | boolean | number | null
@@ -18,7 +19,7 @@ interface SettingsState {
 
 const sections = [
   { id: 'general', label: 'General', fields: ['env', 'secret_key', 'db_path', 'api_host', 'api_port', 'media_root', 'output_root', 'model_root', 'youtube_api_key'] },
-  { id: 'ytdlp', label: 'YouTube / yt-dlp', fields: ['yt_dlp_path', 'yt_dlp_bypass_mode', 'yt_dlp_cookiejar_path', 'yt_dlp_cookies_browser', 'yt_dlp_cookies_browser_profile', 'yt_dlp_user_agent', 'yt_dlp_extra_args', 'yt_dlp_update_strategy', 'video_resolution', 'video_format_fallback'] },
+  { id: 'ytdlp', label: 'YouTube / yt-dlp', fields: ['yt_dlp_path', 'yt_dlp_bypass_chain', 'yt_dlp_bypass_mode', 'yt_dlp_cookiejar_path', 'yt_dlp_cookies_browser', 'yt_dlp_cookies_browser_profile', 'yt_dlp_user_agent', 'yt_dlp_extra_args', 'yt_dlp_update_strategy', 'video_resolution', 'video_format_fallback'] },
   { id: 'transcript', label: 'Transcript', fields: ['transcript_languages', 'whisper_model'] },
   { id: 'frames', label: 'Frames', fields: ['frame_max_count', 'frame_min_interval_s', 'frame_hash_algo', 'frame_hash_threshold', 'frame_long_edge', 'frame_jpeg_quality', 'frame_dedup_mode', 'frame_dedup_window', 'frame_dedup_pipeline', 'frame_motion_threshold', 'frame_ssim_threshold', 'frame_hist_threshold', 'frame_dedup_ssim_window'] },
   { id: 'outputs', label: 'Outputs', fields: ['output_formats', 'presets_path'] },
@@ -41,7 +42,7 @@ const boolFields = new Set([
 ])
 
 const selectFields: Record<string, string[]> = {
-  yt_dlp_bypass_mode: ['default', 'po_token', 'cookie', 'cookies_from_browser'],
+  yt_dlp_bypass_mode: ['default', 'web_embedded', 'po_token', 'cookie', 'cookies_from_browser', 'hls'],
   yt_dlp_cookies_browser: ['chrome', 'edge', 'firefox', 'brave', 'chromium', 'opera', 'vivaldi'],
   frame_hash_algo: ['phash', 'dhash', 'ahash'],
   frame_dedup_mode: ['global', 'window'],
@@ -154,6 +155,22 @@ export default function Settings() {
                 const value = settings[field]
                 const isBool = boolFields.has(field)
                 const selectOpts = selectFields[field]
+
+                // Reason: yt_dlp_bypass_chain gets a dedicated ordered-list
+                // editor with per-mode tooltips, not a plain text input.
+                if (field === 'yt_dlp_bypass_chain') {
+                  return (
+                    <div key={field} className="grid gap-1.5">
+                      <Label className="text-xs">
+                        Bypass Chain
+                      </Label>
+                      <BypassChainEditor
+                        value={String(value || '')}
+                        onChange={(v) => setField(field, v)}
+                      />
+                    </div>
+                  )
+                }
 
                 return (
                   <div key={field} className="grid gap-1">

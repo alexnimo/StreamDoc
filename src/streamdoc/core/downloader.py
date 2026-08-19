@@ -367,6 +367,18 @@ def _apply_bypass_opts(
             },
         }
 
+    # --- HLS bypass (base layer) ---
+    # Reason: the web_safari client provides HLS (m3u8) formats that bypass
+    # YouTube's IP-level DASH download blocks. HLS is typically capped at
+    # 480p, so this is a quality-degraded last resort. Requires a JS
+    # runtime (node/deno) for the n-challenge solver.
+    if mode == "hls":
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["web_safari"],
+            },
+        }
+
     # --- Cookies-from-browser bypass (base layer) ---
     # Reason: reads cookies directly from the user's signed-in browser
     # session. This is the most reliable way to bypass YouTube's bot
@@ -482,6 +494,14 @@ def build_common_args(
         args.extend([
             "--extractor-args",
             "youtube:player_client=web_embedded",
+        ])
+
+    if mode == "hls":
+        # Reason: web_safari client provides HLS (m3u8) formats that bypass
+        # IP-level DASH blocks. Capped at 480p — quality-degraded last resort.
+        args.extend([
+            "--extractor-args",
+            "youtube:player_client=web_safari",
         ])
 
     if mode == "cookies_from_browser":
@@ -615,6 +635,46 @@ def _log_cookie_db_lock_guidance() -> None:
         "no-auth fallback. NOTE: cookies_from_browser with your personal profile risks "
         "getting your YouTube account banned — use a dedicated profile if you opt in."
     )
+
+
+# Reason: the complete set of bypass modes the chain can contain. Used by
+# _resolve_bypass_chain() to validate entries and by the frontend to build
+# the picklist. Keep in sync with the yt_dlp_bypass_chain config docstring.
+SUPPORTED_BYPASS_MODES: frozenset[str] = frozenset(
+    {"web_embedded", "po_token", "cookie", "cookies_from_browser", "hls", "default"}
+)
+
+
+def _resolve_bypass_chain() -> list[str]:
+    """Return the ordered list of bypass modes to try for downloads.
+
+    Reason: when ``yt_dlp_bypass_chain`` is non-empty, it takes precedence
+    over the legacy ``yt_dlp_bypass_mode`` + ``yt_dlp_bypass_fallback_mode``
+    pair. Each mode is tried in order; on retriable failure the next mode
+    is tried. When the chain is empty, the legacy single-mode + single-
+    fallback behavior is preserved for backward compatibility.
+
+    Returns:
+        Ordered list of validated bypass mode strings. May be empty if
+        the chain setting is unset and the caller should fall back to
+        legacy behavior.
+    """
+    raw = settings.yt_dlp_bypass_chain.strip()
+    if not raw:
+        return []
+    modes: list[str] = []
+    for entry in raw.split(","):
+        mode = entry.strip()
+        if mode and mode in SUPPORTED_BYPASS_MODES:
+            modes.append(mode)
+        elif mode:
+            logger.warning(
+                "Ignoring unknown bypass mode '%s' in yt_dlp_bypass_chain "
+                "(supported: %s)",
+                mode,
+                ", ".join(sorted(SUPPORTED_BYPASS_MODES)),
+            )
+    return modes
 
 
 # Reason: YouTube's bot detection is not uniform — some channels/videos get
@@ -757,12 +817,19 @@ def dump_json(
         RuntimeError: If yt-dlp exits non-zero or output is unparseable.
     """
     binary = _yt_dlp_binary()
-    mode = _resolve_effective_mode()
-    # Reason: channel/listing queries also use the bypass mode. Logged at
-    # DEBUG because dump_json is called frequently (per channel listing)
-    # and would be noisy at INFO.
-    logger.debug("dump_json %s with bypass_mode=%s", url, mode)
-    cmd = [binary, *build_common_args()]
+    # Reason: when the bypass chain is active, metadata queries use only
+    # the first mode in the chain (no need to iterate — metadata extraction
+    # is lightweight and the first mode is the most effective). When the
+    # chain is empty, fall back to the legacy effective mode.
+    chain = _resolve_bypass_chain()
+    if chain:
+        mode = chain[0]
+        logger.debug("dump_json %s with bypass_mode=%s (chain[0])", url, mode)
+        cmd = [binary, *build_common_args(bypass_mode_override=mode)]
+    else:
+        mode = _resolve_effective_mode()
+        logger.debug("dump_json %s with bypass_mode=%s", url, mode)
+        cmd = [binary, *build_common_args()]
 
     if dump_single_json:
         cmd.append("--dump-single-json")
@@ -783,9 +850,8 @@ def dump_json(
         # Reason: retry with the fallback bypass mode(s) for infrastructure and
         # transient YouTube errors (cookie DB lock, bot detection, rate
         # limiting, login required, HTTP 403). These may succeed with a
-        # different bypass strategy. The fallback chain supports multiple
-        # comma-separated modes. The default fallback is "default" (no-auth).
-        # cookies_from_browser is opt-in only (ban risk on personal profiles).
+        # different bypass strategy. When the bypass chain is active, use the
+        # remaining chain modes. When empty, use the legacy fallback modes.
         if _should_fallback_retry(original_err):
             logger.warning(
                 "Primary bypass mode=%s failed for dump_json %s [%s]: %s",
@@ -793,7 +859,12 @@ def dump_json(
             )
             if is_cookie_db_lock_error(original_err):
                 _log_cookie_db_lock_guidance()
-            fallback_modes = _get_fallback_bypass_modes()
+            # Reason: when using the chain, try the remaining modes (chain[1:]).
+            # When empty, fall back to the legacy multi-fallback list.
+            if chain:
+                fallback_modes = chain[1:]
+            else:
+                fallback_modes = _get_fallback_bypass_modes()
             success = False
             for fb_mode in fallback_modes:
                 logger.info(
@@ -851,18 +922,16 @@ def _format_selector() -> str:
 
 
 def download(url: str, output_template: str) -> subprocess.CompletedProcess:
-    """Download media via yt-dlp.
+    """Download media via yt-dlp using the configured bypass chain.
 
-    If the primary bypass mode fails with a cookie DB lock error (Chrome/Edge
-    running on Windows, yt-dlp issue #7271) and a fallback bypass mode is
-    configured via ``STREAMDOC_YT_DLP_BYPASS_FALLBACK_MODE``, the download
-    is automatically retried with the fallback mode.
+    When ``yt_dlp_bypass_chain`` is non-empty, each mode is tried in order.
+    On retriable failure (HTTP 403, bot detection, rate limit, cookie DB
+    lock) the next mode is tried. On success or permanent error (private,
+    deleted, members-only) the chain stops immediately.
 
-    If the download fails with HTTP 403 (YouTube IP-blocking DASH/HTTPS
-    media URLs) and ``STREAMDOC_YT_DLP_HLS_FALLBACK_ENABLED`` is True, the
-    download is retried with the ``web_safari`` client which provides HLS
-    (m3u8) formats that bypass the IP block. HLS is typically limited to
-    480p, so this is a quality-degraded fallback.
+    When the chain is empty, the legacy behavior is preserved: the primary
+    bypass mode is tried, then the single fallback mode, then the HLS
+    fallback (if enabled).
 
     Args:
         url: Video URL.
@@ -872,12 +941,64 @@ def download(url: str, output_template: str) -> subprocess.CompletedProcess:
         CompletedProcess (caller checks returncode).
     """
     binary = _yt_dlp_binary()
+    chain = _resolve_bypass_chain()
+
+    # --- Chain path: iterate modes in order ---
+    if chain:
+        total = len(chain)
+        logger.info("Downloading %s via bypass chain (%d modes): %s", url, total, ", ".join(chain))
+        result: subprocess.CompletedProcess[str] | None = None
+        for i, mode in enumerate(chain):
+            step = i + 1
+            # Reason: hls mode uses the HLS format selector (progressive,
+            # capped at 480p) instead of the DASH bestvideo+bestaudio
+            # selector used by all other modes.
+            fmt = _hls_format_selector() if mode == "hls" else _format_selector()
+            logger.info("Chain step %d/%d: trying bypass_mode=%s", step, total, mode)
+            cmd = [
+                binary,
+                *build_common_args(include_progress=True, bypass_mode_override=mode),
+                "-f", fmt,
+                "--merge-output-format", "mp4",
+                "-o", output_template,
+                url,
+            ]
+            result = _run(cmd)
+            if result.returncode == 0:
+                logger.info("Chain step %d/%d succeeded with bypass_mode=%s", step, total, mode)
+                return result
+            err = result.stderr or result.stdout or ""
+            category = classify_download_error(err)
+            # Reason: permanent errors (private, deleted, members-only,
+            # age-restricted, region-blocked) will never succeed with a
+            # different bypass mode — stop the chain immediately.
+            if is_permanent_error(category):
+                logger.info(
+                    "Chain step %d/%d failed with permanent error (%s) — stopping chain",
+                    step, total, category,
+                )
+                return result
+            if is_cookie_db_lock_error(err):
+                _log_cookie_db_lock_guidance()
+            # Reason: retriable error — log and continue to the next mode.
+            if step < total:
+                logger.info(
+                    "Chain step %d/%d failed (%s) — trying next mode",
+                    step, total, category,
+                )
+            else:
+                logger.warning(
+                    "Chain exhausted (all %d modes failed). Last error: %s",
+                    total, category,
+                )
+        # Reason: all modes failed; return the last result so the caller
+        # sees the final error.
+        assert result is not None
+        return result
+
+    # --- Legacy path: single mode + single fallback + HLS fallback ---
     mode = _resolve_effective_mode()
-    # Reason: log the effective bypass mode at INFO so the operator can see
-    # exactly which strategy was used for each download (po_token vs
-    # cookies_from_browser vs cookie vs default). This is the primary
-    # diagnostic signal for "is the PO token actually being used?".
-    logger.info("Downloading %s with bypass_mode=%s", url, mode)
+    logger.info("Downloading %s with bypass_mode=%s (legacy, no chain)", url, mode)
     cmd = [
         binary,
         *build_common_args(include_progress=True),
