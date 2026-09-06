@@ -1,11 +1,11 @@
 """Playwright-based Google login for NotebookLM.
 
-Thin wrapper around the upstream ``notebooklm._auth.browser_capture`` core so
+Thin wrapper around the upstream ``notebooklm._browser.browser_capture`` core so
 StreamDoc's interactive and headless login paths reuse the same battle-tested
 launch -> navigate -> capture -> filter -> persist sequence that ships with the
 installed ``notebooklm-py`` package. The wrapper only translates StreamDoc's
 ``run_playwright_login`` call signature into the upstream
-:class:`notebooklm._auth.browser_capture.BrowserCapturePlan` and a simple
+:class:`notebooklm._browser.browser_capture.BrowserCapturePlan` and a simple
 :class:`BrowserCaptureIO` sink.
 """
 
@@ -50,7 +50,7 @@ def run_playwright_login(
     """
     del login_timeout_ms, goto_timeout_ms  # legacy signature compatibility
 
-    from notebooklm._auth.browser_capture import (
+    from notebooklm._browser.browser_capture import (
         BrowserCapturePlan,
         run_browser_capture,
     )
