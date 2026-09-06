@@ -16,7 +16,25 @@ from pathlib import Path
 
 
 def detect_yt_dlp_version() -> tuple[str | None, str | None]:
-    """Return (installed_version, binary_path) for yt-dlp."""
+    """Return (installed_version, binary_path) for yt-dlp.
+
+    Uses importlib.metadata as the primary source because it reads from disk
+    (the .dist-info directory) rather than from the cached module in
+    sys.modules. This is critical after an in-place upgrade: the running
+    server process still has the old yt_dlp module cached in sys.modules,
+    so ``yt_dlp.version.__version__`` would return the stale version even
+    after ``uv sync`` has installed the new package on disk.
+    """
+    # Primary: importlib.metadata (reads from disk, not from cached module)
+    try:
+        from importlib.metadata import version as _pkg_version
+        ver = _pkg_version("yt-dlp")
+        if ver:
+            binary = shutil.which("yt-dlp")
+            return ver, binary
+    except Exception:
+        pass
+    # Fallback: import the module (stale after upgrade, but better than nothing)
     try:
         import yt_dlp
         version = getattr(yt_dlp, "version", None)
@@ -24,7 +42,7 @@ def detect_yt_dlp_version() -> tuple[str | None, str | None]:
             return version.__version__, None
     except Exception:
         pass
-    # Fallback: run yt-dlp --version
+    # Last resort: run yt-dlp --version
     binary = shutil.which("yt-dlp")
     if binary:
         try:
@@ -40,7 +58,17 @@ def detect_yt_dlp_version() -> tuple[str | None, str | None]:
 
 
 def detect_faster_whisper_version() -> tuple[str | None, str | None]:
-    """Return (installed_version, binary_path) for faster-whisper."""
+    """Return (installed_version, binary_path) for faster-whisper.
+
+    Uses importlib.metadata as primary source (disk, not cached module).
+    """
+    try:
+        from importlib.metadata import version as _pkg_version
+        ver = _pkg_version("faster-whisper")
+        if ver:
+            return ver, None
+    except Exception:
+        pass
     try:
         import faster_whisper
         version = getattr(faster_whisper, "__version__", None)

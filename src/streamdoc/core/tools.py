@@ -344,6 +344,15 @@ def update_plugin(name: str) -> UpdateLogEntry:
     installed_after, _ = _detect_version(name)
     timestamp = _now_iso()
 
+    # Reason: if uv reported success but the installed version didn't change,
+    # the update was a no-op (e.g. lockfile already at latest, or uv sync
+    # didn't actually install the new version). Report this honestly rather
+    # than claiming success.
+    if success and installed_before and installed_after:
+        if installed_before == installed_after:
+            success = False
+            message = f"No version change (still {installed_before}). Lockfile may already be at latest."
+
     state = _load_state()
     plugin_state = state.setdefault("plugins", {}).setdefault(name, {})
     plugin_state["last_update"] = timestamp

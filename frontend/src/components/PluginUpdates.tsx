@@ -30,6 +30,7 @@ export function PluginUpdates() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
 
   const load = useCallback(() => {
     Promise.all([api.listPlugins(), api.getPluginLogs(20), api.getPotStatus()])
@@ -60,7 +61,14 @@ export function PluginUpdates() {
   const updateOne = async (name: string) => {
     setUpdating(name)
     try {
-      await api.updatePlugin(name)
+      const result = await api.updatePlugin(name)
+      // Reason: show the update result to the user so they know if it
+      // succeeded or was a no-op, rather than silently reloading status.
+      if (result.success) {
+        setUpdateMsg(`${result.plugin}: updated ${result.from_version || '?'} → ${result.to_version || '?'}`)
+      } else {
+        setUpdateMsg(`${result.plugin}: ${result.message}`)
+      }
       setPlugins(await api.listPlugins())
       setLogs(await api.getPluginLogs(20))
     } catch (e) {
@@ -118,6 +126,9 @@ export function PluginUpdates() {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-xs text-destructive">{error}</p>}
+        {updateMsg && !error && (
+          <p className="text-xs text-muted-foreground">{updateMsg}</p>
+        )}
 
         {/* PO Token provider status */}
         {potStatus && (
