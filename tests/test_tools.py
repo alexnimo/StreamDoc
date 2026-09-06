@@ -128,4 +128,4 @@ def test_run_startup_check_disabled(monkeypatch, isolated_state):
     """When tool_update_enabled is False, startup check should not force updates."""
     monkeypatch.setattr(settings, "tool_update_enabled", False)
     statuses = tools.run_startup_check()
-    assert len(statuses) == 3
+    assert len(statuses) == 4  # yt_dlp, faster_whisper, ffmpeg, notebooklm_py

@@ -55,7 +55,7 @@ async def run_headless_reauth_capture(
 ) -> bool:
     """Run one headless capture attempt and log the real exception on failure.
 
-    This is the StreamDoc wrapper around ``notebooklm._auth.headless_reauth``.
+    This is the StreamDoc wrapper around ``notebooklm._browser.headless_reauth``.
     The upstream ``attempt_headless_reauth`` intentionally swallows Playwright
     errors and returns ``headless capture failed: <type>`` for security, which
     makes diagnosing launch/attach problems impossible. This wrapper performs
@@ -73,12 +73,12 @@ async def run_headless_reauth_capture(
     Returns:
         ``True`` when fresh cookies were captured and persisted.
     """
-    from notebooklm._auth.browser_capture import (  # type: ignore[import-untyped]
+    from notebooklm._browser.browser_capture import (  # type: ignore[import-untyped]
         BrowserCapturePlan,
         run_browser_capture,
         run_cdp_capture,
     )
-    from notebooklm._auth.headless_reauth import (  # type: ignore[import-untyped]
+    from notebooklm._browser.headless_reauth import (  # type: ignore[import-untyped]
         _playwright_installed,
         _resolve_reusable_profile,
         resolve_cdp_url,

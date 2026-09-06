@@ -779,3 +779,24 @@ class PluginUpdateLogOut(BaseModel):
     to_version: str | None = None
     success: bool
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+class NotificationOut(BaseModel):
+    """A single notification for the notification bell."""
+    id: str
+    type: str  # plugin_update | job_completed | job_failed | notebooklm_auth
+    title: str
+    message: str
+    severity: str = "info"  # info | warning | error
+    timestamp: str
+    action_url: str | None = None
+    action_label: str | None = None
+
+
+class NotificationListOut(BaseModel):
+    """Aggregated notification list for the bell dropdown."""
+    notifications: list[NotificationOut] = Field(default_factory=list)
+    unread_count: int = 0

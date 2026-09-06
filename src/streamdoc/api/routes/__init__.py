@@ -12,6 +12,7 @@ from streamdoc.api.routes import (
     fetch,
     jobs,
     notebooklm,
+    notifications,
     presets,
     prompts,
     reports,
@@ -41,3 +42,4 @@ api_router.include_router(channels.router)
 api_router.include_router(prompts.router)
 api_router.include_router(reports.router)
 api_router.include_router(tools.router)
+api_router.include_router(notifications.router)

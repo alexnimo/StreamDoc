@@ -105,10 +105,18 @@ async def keepalive_loop(
     while True:
         ctx = None
         try:
+            # Reason: allow_headless=True is required in notebooklm-py 0.8.2+
+            # for the transport layer to permit mid-RPC headless re-auth when
+            # cookies expire. Without it, session_auth.py gates off the L3
+            # recovery path at the WebSessionAuth.refresh() level (line 74)
+            # even when NOTEBOOKLM_HEADLESS_REAUTH=1 is set, because the env
+            # var is only checked as a secondary gate inside the headless
+            # reauth function itself — the transport layer never reaches it.
             ctx = NotebookLMClient.from_storage(
                 storage_path,
                 keepalive=interval_seconds,
                 keepalive_min_interval=60.0,
+                allow_headless=True,
             )
             await ctx.__aenter__()
             logger.info(

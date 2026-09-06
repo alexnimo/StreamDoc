@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Settings, Briefcase, BookOpen, Zap, FileText, CalendarClock, Files, Rocket } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle'
-import { PluginUpdateBadge } from './PluginUpdateBadge'
+import { NotificationBell } from './NotificationBell'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -50,7 +50,7 @@ export function TopNav() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <PluginUpdateBadge />
+          <NotificationBell />
           <ThemeToggle />
         </div>
       </div>

@@ -129,29 +129,29 @@ class NotebookLMAuthManager:
     async def _probe_session(self) -> None:
         """Open a client and list notebooks as a lightweight session probe.
 
-        This is a thin wrapper around the upstream ``from_storage`` path so the
-        same exception handling can be reused for the initial check and the
-        post-refresh retry.
+        Wraps the upstream ``from_storage`` path so the same exception handling
+        can be reused for the initial check and the post-refresh retry.
 
         Raises:
-            Exception: Any exception raised by ``NotebookLMClient.from_storage``
-                or ``client.notebooks.list()``.
+            Exception: Any exception raised by ``from_storage`` or ``notebooks.list()``.
         """
         from notebooklm import NotebookLMClient
 
-        async with NotebookLMClient.from_storage(str(self._storage_path_for_profile)) as client:
+        # Reason: allow_headless=True lets the probe benefit from mid-RPC
+        # headless re-auth if cookies are expired but the profile is valid.
+        async with NotebookLMClient.from_storage(
+            str(self._storage_path_for_profile), allow_headless=True,
+        ) as client:
             await client.notebooks.list()
 
     async def check_session_freshness(self, auto_refresh: bool = True) -> SessionStatus:
         """Check session freshness by attempting a lightweight operation.
 
         When ``auto_refresh`` is enabled and the probe fails with an auth-shaped
-        error, StreamDoc attempts a one-shot headless re-capture from the
-        persistent browser profile before giving up.
+        error, attempts a one-shot headless re-capture from the browser profile.
 
         Args:
-            auto_refresh: If True, attempt to re-capture cookies from the
-                persistent browser profile when the session appears expired.
+            auto_refresh: If True, attempt to re-capture cookies when expired.
 
         Returns:
             SessionStatus with validity and freshness information

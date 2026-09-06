@@ -329,6 +329,21 @@ def frontend_build() -> bool:
 # ── Runtime tools ─────────────────────────────────────────────────────
 
 
+# Reason: report when git-pinned deps (e.g. notebooklm-py) fall behind upstream.
+try:
+    from streamdoc.core.git_plugins import check_all_git_plugins
+    def _check_git_plugins(repo_root: Path, has_git: bool) -> list[str]:
+        if not has_git: return []
+        out: list[str] = []
+        for i in check_all_git_plugins(repo_root):
+            p, l, r = str(i.get("package", "")), i.get("installed_sha_short") or "?", i.get("latest_sha_short") or "?"
+            up = i.get("update_available")
+            out.append(f"  {'[OK] ' if not up else ''}{p}: {'up to date' if not up else 'UPDATE AVAILABLE'} ({l}{f'→{r}' if up else ''})")
+        return out
+except ImportError:
+    _check_git_plugins = lambda repo_root, has_git: []  # noqa: E731
+
+
 def tools_check() -> None:
     """Show current versions of runtime tools."""
     _header("Runtime tools")
@@ -337,9 +352,9 @@ def tools_check() -> None:
         _skip("uv not found")
         return
 
-    # Reason: use importlib.metadata for package version (reliable across all
-    # packages). Some packages like ffmpeg-python don't expose __version__.
-    tools = ["yt-dlp", "ffmpeg-python", "faster-whisper", "twitter-cli", "rdt-cli"]
+    # Reason: notebooklm-py is a git dependency whose auth flow breaks
+    # silently when stale, so it is monitored alongside the other tools.
+    tools = ["yt-dlp", "ffmpeg-python", "faster-whisper", "twitter-cli", "rdt-cli", "notebooklm-py"]
 
     for name in tools:
         result = _run(
@@ -352,43 +367,34 @@ def tools_check() -> None:
         else:
             print(f"  {name}: not installed")
 
+    # Check git-sourced plugins for upstream commits ahead of the lockfile.
+    for line in _check_git_plugins(REPO_ROOT, _has_git()):
+        print(line)
+
     # Check yt-dlp latest from PyPI
     result = _run(
         ["uv", "run", "python", "-c",
-         (
-             "import urllib.request, json; "
-             "data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/yt-dlp/json').read()); "
-             "print(data['info']['version'])"
-         )],
+         "import urllib.request, json; data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/yt-dlp/json').read()); print(data['info']['version'])"],
         check=False,
     )
     if result.returncode == 0:
         latest = result.stdout.strip()
-        installed = _run(
-            ["uv", "run", "python", "-c", "import yt_dlp; print(yt_dlp.version.__version__)"],
-            check=False,
-        )
+        installed = _run(["uv", "run", "python", "-c", "import yt_dlp; print(yt_dlp.version.__version__)"], check=False)
         if installed.returncode == 0:
             inst_ver = installed.stdout.strip()
-            # Reason: yt-dlp uses zero-padded dates (2026.06.09) while PyPI
-            # reports without padding (2026.6.9). Normalize by stripping
-            # leading zeros from each numeric segment for comparison.
-            def _norm_ver(v: str) -> tuple:
-                return tuple(int(x) for x in v.split("."))
-
-            if _norm_ver(inst_ver) < _norm_ver(latest):
+            # Reason: yt-dlp uses zero-padded dates (2026.06.09) while PyPI reports without padding.
+            _norm = lambda v: tuple(int(x) for x in v.split("."))  # noqa: E731
+            if _norm(inst_ver) < _norm(latest):
                 print(f"  yt-dlp: installed={inst_ver}, latest={latest}  -> UPDATE AVAILABLE")
             else:
                 print(f"  yt-dlp: up to date ({inst_ver})")
 
 
 def tools_upgrade() -> bool:
-    """Upgrade runtime tools (yt-dlp, ffmpeg-python, faster-whisper, twitter-cli, rdt-cli).
+    """Upgrade runtime tools via ``uv lock --upgrade-package`` then ``uv sync``.
 
-    Uses `uv lock --upgrade-package` to update the lockfile, then `uv sync`
-    to install the new versions. This is the correct uv workflow —
-    `uv pip install --upgrade` is temporary and gets reverted by the next
-    `uv run` or `uv sync` because they respect the lockfile.
+    For git-sourced plugins like notebooklm-py, ``--upgrade-package``
+    re-resolves the default branch to its latest commit.
     """
     _header("Runtime tools")
 
@@ -396,7 +402,7 @@ def tools_upgrade() -> bool:
         _skip("uv not found")
         return False
 
-    tools = ["yt-dlp", "ffmpeg-python", "faster-whisper", "twitter-cli", "rdt-cli"]
+    tools = ["yt-dlp", "ffmpeg-python", "faster-whisper", "twitter-cli", "rdt-cli", "notebooklm-py"]
     any_upgraded = False
 
     for tool in tools:

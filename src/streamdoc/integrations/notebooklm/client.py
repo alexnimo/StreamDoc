@@ -67,11 +67,16 @@ class NotebookLMClientWrapper:
 
         storage_path = self.auth_manager.get_storage_path()
         keepalive_seconds = settings.notebooklm_keepalive_interval_minutes * 60
+        # Reason: allow_headless=True is required in notebooklm-py 0.8.2+ for
+        # the transport layer to permit mid-RPC headless re-auth when cookies
+        # expire mid-operation (e.g. during a long upload). The env var alone
+        # is not sufficient — the transport layer gates on this parameter first.
         self._client = await NotebookLMClient.from_storage(
             storage_path,
             timeout=self.timeout,
             keepalive=keepalive_seconds,
             keepalive_min_interval=60.0,
+            allow_headless=True,
         ).__aenter__()
         return self
     

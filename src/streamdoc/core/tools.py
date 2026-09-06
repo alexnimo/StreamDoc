@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -23,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from streamdoc.config import settings
+from streamdoc.core.version_detect import detect_version as _detect_version
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,13 @@ _STATE_DIR = Path("data/State")
 _STATE_PATH = _STATE_DIR / "tools_state.json"
 
 # Plugins managed by this service. Each entry maps the internal name to
-# (display_name, pypi_package_or_none, auto_update_config_flag).
-_PLUGIN_REGISTRY: dict[str, tuple[str, str | None, str]] = {
-    "yt_dlp": ("yt-dlp", "yt-dlp", "tool_auto_update_yt_dlp"),
-    "faster_whisper": ("faster-whisper", "faster-whisper", "tool_auto_update_whisper"),
-    "ffmpeg": ("ffmpeg", None, "tool_auto_update_ffmpeg"),
+# (display_name, pypi_package_or_none, auto_update_config_flag, source_type).
+# source_type: "pypi" for PyPI packages, "git" for git-sourced plugins.
+_PLUGIN_REGISTRY: dict[str, tuple[str, str | None, str, str]] = {
+    "yt_dlp": ("yt-dlp", "yt-dlp", "tool_auto_update_yt_dlp", "pypi"),
+    "faster_whisper": ("faster-whisper", "faster-whisper", "tool_auto_update_whisper", "pypi"),
+    "ffmpeg": ("ffmpeg", None, "tool_auto_update_ffmpeg", "pypi"),
+    "notebooklm_py": ("notebooklm-py", "notebooklm-py", "tool_auto_update_notebooklm", "git"),
 }
 
 _CADENCE_DAYS = {"daily": 1, "weekly": 7, "manual": 0}
@@ -122,75 +124,10 @@ def _now_iso() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Version detection
+# Version detection — delegated to version_detect module
 # ---------------------------------------------------------------------------
 
-def _detect_yt_dlp_version() -> tuple[str | None, str | None]:
-    """Return (installed_version, binary_path) for yt-dlp."""
-    try:
-        import yt_dlp
-        version = getattr(yt_dlp, "version", None)
-        if version is not None:
-            return version.__version__, None
-    except Exception:
-        pass
-    # Fallback: run yt-dlp --version
-    binary = shutil.which("yt-dlp")
-    if binary:
-        try:
-            result = subprocess.run(
-                [binary, "--version"], capture_output=True, text=True,
-                timeout=10, check=False,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip().splitlines()[0].strip(), binary
-        except Exception:
-            pass
-    return None, None
-
-
-def _detect_faster_whisper_version() -> tuple[str | None, str | None]:
-    """Return (installed_version, binary_path) for faster-whisper."""
-    try:
-        import faster_whisper
-        version = getattr(faster_whisper, "__version__", None)
-        if version:
-            return version, None
-    except Exception:
-        pass
-    return None, None
-
-
-def _detect_ffmpeg_version() -> tuple[str | None, str | None]:
-    """Return (installed_version, binary_path) for ffmpeg."""
-    binary = shutil.which("ffmpeg")
-    if not binary:
-        return None, None
-    try:
-        result = subprocess.run(
-            [binary, "-version"], capture_output=True, text=True,
-            timeout=10, check=False,
-        )
-        if result.returncode == 0:
-            # First line: "ffmpeg version 7.0.2 Copyright ..."
-            first_line = result.stdout.strip().splitlines()[0]
-            parts = first_line.split()
-            if len(parts) >= 3:
-                return parts[2].strip(), binary
-    except Exception:
-        pass
-    return None, binary
-
-
-def _detect_version(name: str) -> tuple[str | None, str | None]:
-    """Dispatch to the correct version detector for a plugin."""
-    if name == "yt_dlp":
-        return _detect_yt_dlp_version()
-    if name == "faster_whisper":
-        return _detect_faster_whisper_version()
-    if name == "ffmpeg":
-        return _detect_ffmpeg_version()
-    return None, None
+# _detect_version is imported from streamdoc.core.version_detect at the top.
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +175,12 @@ def _compare_versions(installed: str, latest: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _run_uv_upgrade(package: str) -> tuple[bool, str]:
-    """Upgrade a pip package via uv.
+    """Upgrade a package via the correct uv workflow.
+
+    Uses ``uv lock --upgrade-package <pkg>`` to update the lockfile, then
+    ``uv sync`` to install the new version. This is the correct uv workflow —
+    ``uv pip install --upgrade`` is temporary and gets reverted by the next
+    ``uv run`` or ``uv sync`` because they respect the lockfile.
 
     Args:
         package: PyPI package name to upgrade.
@@ -247,15 +189,22 @@ def _run_uv_upgrade(package: str) -> tuple[bool, str]:
         Tuple of (success, message).
     """
     try:
-        result = subprocess.run(
-            ["uv", "pip", "install", "--upgrade", package],
+        lock_result = subprocess.run(
+            ["uv", "lock", "--upgrade-package", package],
             capture_output=True, text=True, timeout=120, check=False,
             cwd=str(Path.cwd()),
         )
-        if result.returncode == 0:
-            msg = (result.stdout or "").strip().splitlines()
+        if lock_result.returncode != 0:
+            return False, (lock_result.stderr or "uv lock failed").strip()
+        sync_result = subprocess.run(
+            ["uv", "sync", "--extra", "dev"],
+            capture_output=True, text=True, timeout=180, check=False,
+            cwd=str(Path.cwd()),
+        )
+        if sync_result.returncode == 0:
+            msg = (sync_result.stdout or "").strip().splitlines()
             return True, msg[-1] if msg else "Updated"
-        return False, (result.stderr or result.stdout or "uv failed").strip()
+        return False, (sync_result.stderr or sync_result.stdout or "uv sync failed").strip()
     except FileNotFoundError:
         # Reason: uv not on PATH — fall back to pip
         return _run_pip_upgrade(package)
@@ -294,7 +243,7 @@ def get_plugin_status(name: str, *, force_check: bool = False) -> PluginStatus:
     """
     if name not in _PLUGIN_REGISTRY:
         raise ValueError(f"Unknown plugin: {name}")
-    display_name, pypi_pkg, auto_flag = _PLUGIN_REGISTRY[name]
+    display_name, pypi_pkg, auto_flag, source_type = _PLUGIN_REGISTRY[name]
     state = _load_state()
     plugin_state = state.get("plugins", {}).get(name, {})
 
@@ -305,12 +254,20 @@ def get_plugin_status(name: str, *, force_check: bool = False) -> PluginStatus:
     last_updated = plugin_state.get("last_update")
     update_message = plugin_state.get("update_message")
 
-    # Reason: only hit PyPI when the cadence allows it (or when forced).
-    # This avoids unnecessary network calls on every UI load.
+    # Reason: only hit PyPI/git-remote when the cadence allows it (or when
+    # forced). This avoids unnecessary network calls on every UI load.
     latest = plugin_state.get("last_known_latest")
     should_check = force_check or _should_check(name, last_checked)
+    update_available = False
     if pypi_pkg and should_check:
-        latest = _fetch_pypi_latest(pypi_pkg)
+        if source_type == "git":
+            from streamdoc.core.git_plugins import git_plugin_latest
+            repo_root = Path(__file__).resolve().parents[2]
+            latest, update_available = git_plugin_latest(repo_root, pypi_pkg)
+            check_msg = "Checked upstream HEAD" if latest else "Git remote check failed"
+        else:
+            latest = _fetch_pypi_latest(pypi_pkg)
+            check_msg = "Checked PyPI" if latest else "PyPI check failed"
         last_checked = _now_iso()
         plugin_state["last_check"] = last_checked
         plugin_state["last_known_latest"] = latest
@@ -319,12 +276,21 @@ def get_plugin_status(name: str, *, force_check: bool = False) -> PluginStatus:
             timestamp=last_checked, plugin=name, action="check",
             from_version=installed, to_version=latest,
             success=latest is not None,
-            message="Checked PyPI" if latest else "PyPI check failed",
+            message=check_msg,
         ))
         _save_state(state)
-
-    update_available = False
-    if installed and latest:
+        # Reason: for pypi plugins, compute update_available after fetching.
+        # For git plugins, git_plugin_latest already returned it.
+        if source_type != "git" and installed and latest:
+            update_available = _compare_versions(installed, latest)
+    elif source_type == "git" and latest:
+        # Reason: for git plugins, recompute update_available from the
+        # current locked SHA vs the cached remote SHA without a network call.
+        from streamdoc.core.git_plugins import locked_git_sha, short_sha
+        repo_root = Path(__file__).resolve().parents[2]
+        locked = locked_git_sha(repo_root, pypi_pkg or "")
+        update_available = locked is not None and short_sha(locked) != latest
+    elif installed and latest:
         update_available = _compare_versions(installed, latest)
 
     return PluginStatus(
@@ -364,7 +330,7 @@ def update_plugin(name: str) -> UpdateLogEntry:
     """
     if name not in _PLUGIN_REGISTRY:
         raise ValueError(f"Unknown plugin: {name}")
-    display_name, pypi_pkg, _ = _PLUGIN_REGISTRY[name]
+    display_name, pypi_pkg, _, source_type = _PLUGIN_REGISTRY[name]
     if not pypi_pkg:
         entry = UpdateLogEntry(
             timestamp=_now_iso(), plugin=name, action="update",
@@ -377,6 +343,15 @@ def update_plugin(name: str) -> UpdateLogEntry:
     success, message = _run_uv_upgrade(pypi_pkg)
     installed_after, _ = _detect_version(name)
     timestamp = _now_iso()
+
+    # Reason: if uv reported success but the installed version didn't change,
+    # the update was a no-op (e.g. lockfile already at latest, or uv sync
+    # didn't actually install the new version). Report this honestly rather
+    # than claiming success.
+    if success and installed_before and installed_after:
+        if installed_before == installed_after:
+            success = False
+            message = f"No version change (still {installed_before}). Lockfile may already be at latest."
 
     state = _load_state()
     plugin_state = state.setdefault("plugins", {}).setdefault(name, {})
