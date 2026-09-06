@@ -107,7 +107,7 @@ export function PluginUpdates() {
               )}
             </CardTitle>
             <CardDescription className="text-xs mt-1">
-              yt-dlp, ffmpeg, and whisper version status
+              yt-dlp, ffmpeg, whisper &amp; NotebookLM SDK version status
             </CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={checkAll} disabled={checking} className="gap-1.5">

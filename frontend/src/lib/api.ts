@@ -228,6 +228,9 @@ export const api = {
   getPluginLogs: (limit = 50) =>
     fetchJSON<PluginUpdateLog[]>(`/tools/logs?limit=${limit}`),
   getPotStatus: () => fetchJSON<PotProviderStatus>('/tools/pot-status'),
+
+  // Notifications
+  getNotifications: () => fetchJSON<NotificationList>('/notifications'),
 }
 
 // SSE stream URL helper
@@ -698,4 +701,23 @@ export interface SocialTestResponse {
   platform: string
   success: boolean
   message: string
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+export interface NotificationItem {
+  id: string
+  type: 'plugin_update' | 'job_completed' | 'job_failed' | 'notebooklm_auth'
+  title: string
+  message: string
+  severity: 'info' | 'warning' | 'error'
+  timestamp: string
+  action_url: string | null
+  action_label: string | null
+}
+
+export interface NotificationList {
+  notifications: NotificationItem[]
+  unread_count: number
 }

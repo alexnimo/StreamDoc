@@ -190,6 +190,7 @@ class Settings(BaseSettings):
     tool_auto_update_yt_dlp: bool = True
     tool_auto_update_ffmpeg: bool = False
     tool_auto_update_whisper: bool = False
+    tool_auto_update_notebooklm: bool = True
 
     # API / Web GUI
     api_host: str = "0.0.0.0"
