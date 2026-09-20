@@ -119,6 +119,43 @@ def _notebooklm_prompt_args(preset: Preset) -> dict[str, str | None]:
     return prompt_args_for_preset(preset, "notebooklm")
 
 
+def _design_prompt_for_preset(
+    preset: Preset,
+    content_type: ContentType,
+) -> str | None:
+    """Render the preset's ``design_prompt_template`` into injectable text.
+
+    Reason (POR-91 T2): design injection is off-by-default — a NULL or
+    blank ``design_prompt_template`` returns None so callers pass
+    ``design_prompt=None`` and the upload layer emits byte-identical
+    prompts. A bad template config must NEVER fail a run, so every
+    failure mode (unknown name -> KeyError, unsupported content type ->
+    ValueError, or anything else) logs a warning and returns None.
+
+    Args:
+        preset: Preset configuration.
+        content_type: ContentType the design template renders against.
+
+    Returns:
+        Rendered design prompt text, or None.
+    """
+    template_name = (getattr(preset, "design_prompt_template", None) or "").strip()
+    if not template_name:
+        return None
+    try:
+        pm = PromptManager(
+            settings.notebooklm_templates_dir,
+            settings.notebooklm_sample_prompts_dir,
+        )
+        return pm.render_prompt(template_name, content_type)
+    except Exception:
+        logger.warning(
+            "design template %r unusable; skipping design injection",
+            template_name,
+        )
+        return None
+
+
 class RunArtifact:
     """Result of processing a single video."""
 
@@ -583,6 +620,10 @@ class PresetRunner:
                 content_types=content_types if content_types else None,
                 prompt_template=prompt_args["prompt_template"],
                 custom_prompt=prompt_args["custom_prompt"],
+                design_prompt=_design_prompt_for_preset(
+                    preset,
+                    content_types[0] if content_types else ContentType.REPORT,
+                ),
                 retention_hours=notebook_retention,
                 is_permanent=not retention_enabled,
                 retry_generation=getattr(preset, "notebooklm_retry_failed", True),
@@ -850,7 +891,10 @@ class PresetRunner:
         Returns:
             Dict of destination name -> result string.
         """
-        from streamdoc.core.agy_upload import send_reports_to_agy
+        from streamdoc.core.agy_upload import (
+            _DEFAULT_AGY_CONTENT_TYPE,
+            send_reports_to_agy,
+        )
 
         prompt_args = prompt_args_for_preset(preset, "agy")
         logger.info(
@@ -866,6 +910,7 @@ class PresetRunner:
             prompt_template=prompt_args["prompt_template"],
             custom_prompt=prompt_args["custom_prompt"],
             candidates_attempted=candidates_attempted,
+            design_prompt=_design_prompt_for_preset(preset, _DEFAULT_AGY_CONTENT_TYPE),
         )
 
     def _load_preset(self, name: str) -> Preset:
@@ -1604,6 +1649,10 @@ def _send_to_notebooklm(md_path: Path, preset: Preset) -> bool:
             content_types=content_types if content_types else None,
             prompt_template=prompt_args["prompt_template"],
             custom_prompt=prompt_args["custom_prompt"],
+            design_prompt=_design_prompt_for_preset(
+                preset,
+                content_types[0] if content_types else ContentType.REPORT,
+            ),
             retry_generation=getattr(preset, "notebooklm_retry_failed", True),
             retry_attempts=getattr(preset, "notebooklm_retry_attempts", 1),
             retry_delay=(getattr(preset, "notebooklm_retry_delay_minutes", 5.0) or 5.0) * 60,

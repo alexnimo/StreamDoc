@@ -475,3 +475,207 @@ async def test_auth_manager_login_is_reusable_without_playwright():
 
         assert "Run 'notebooklm login' to re-authenticate" in str(exc_info.value)
 
+
+# ---------------------------------------------------------------------------
+# POR-91 T2: design prompt injection in upload_to_notebooklm
+# ---------------------------------------------------------------------------
+
+_DESIGN_TEXT = "Use bold colors and wide margins"
+_DESIGN_BLOCK = f"\n\n<design>\n{_DESIGN_TEXT}\n</design>\n"
+
+
+class _MockSourcesAPI:
+    """Mock sources API: add_file returns a ready source."""
+
+    async def add_file(self, notebook_id, path, title=None, wait=True, wait_timeout=None):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id="src-1", title=title or "t", status=None)
+
+
+class _MockUploadClient:
+    """Mock client wrapper exposing artifacts + sources APIs."""
+
+    def __init__(self):
+        self.artifacts = _MockArtifactsAPI()
+        self.sources = _MockSourcesAPI()
+
+
+class _FakeClientContext:
+    """Async context manager wrapping a preset mock client."""
+
+    def __init__(self, client):
+        self._client = client
+
+    async def __aenter__(self):
+        return self._client
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeAuthManager:
+    """Auth manager stub: always authenticated and fresh."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def require_auth(self):
+        return None
+
+    async def check_session_freshness(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(is_valid=True, message="ok")
+
+
+class _FakeNotebookManager:
+    """Notebook manager stub returning a fixed notebook."""
+
+    def __init__(self, client):
+        pass
+
+    async def create_notebook(self, title):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id="nb-t2", title=title)
+
+    async def get_notebook(self, notebook_id):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id=notebook_id, title="t")
+
+    async def enable_sharing(self, notebook_id, public=True):
+        return "https://nb.example/nb-t2"
+
+
+def _run_upload_to_notebooklm(monkeypatch, tmp_path, client, **kwargs):
+    """Drive upload_to_notebooklm end-to-end with mocked NotebookLM internals.
+
+    The real ContentManager is used, so the prompt captured on the mock
+    artifacts API is the FINAL resolved prompt the integration produced.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from streamdoc.config import settings
+    from streamdoc.core import notebooklm_upload as nlm_mod
+
+    monkeypatch.setattr(settings, "notebooklm_enabled", True)
+    monkeypatch.setattr(settings, "output_root", str(tmp_path))
+    # Reason: point the template dirs at empty tmp dirs so renders come
+    # from in-memory DEFAULT_TEMPLATES and nothing is seeded into the
+    # repo's gitignored config/ dir.
+    monkeypatch.setattr(settings, "notebooklm_templates_dir", str(tmp_path / "tpl"))
+    monkeypatch.setattr(settings, "notebooklm_sample_prompts_dir", str(tmp_path / "samples"))
+    monkeypatch.setattr(nlm_mod, "NotebookLMAuthManager", _FakeAuthManager)
+    monkeypatch.setattr(
+        nlm_mod,
+        "NotebookLMClientWrapper",
+        lambda *a, **k: _FakeClientContext(client),
+    )
+    monkeypatch.setattr(nlm_mod, "NotebookManager", _FakeNotebookManager)
+    # Skip the real indexing/rate-limit sleeps.
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+    report = tmp_path / "report.md"
+    report.write_text("# report")
+
+    kwargs.setdefault("content_types", [ContentType.SLIDE_DECK])
+    kwargs.setdefault("is_permanent", True)
+    return asyncio.run(
+        nlm_mod.upload_to_notebooklm(
+            report_paths=[report],
+            preset_name="t",
+            **kwargs,
+        )
+    )
+
+
+def test_upload_to_notebooklm_design_prompt_appended_to_template(
+    monkeypatch, tmp_path
+):
+    """AC1: design_prompt appends a <design> block to the rendered prompt."""
+    client = _MockUploadClient()
+    _run_upload_to_notebooklm(
+        monkeypatch,
+        tmp_path,
+        client,
+        prompt_template="financial_extraction",
+        design_prompt=_DESIGN_TEXT,
+    )
+
+    assert len(client.artifacts.slide_deck_calls) == 1
+    instructions = client.artifacts.slide_deck_calls[0]["instructions"]
+    # Compute the pre-feature expected prompt the old way.
+    expected_base = PromptManager().render_prompt(
+        "financial_extraction", ContentType.SLIDE_DECK
+    )
+    assert instructions == expected_base + _DESIGN_BLOCK
+    assert instructions.endswith("<design>\n" + _DESIGN_TEXT + "\n</design>\n")
+
+
+def test_upload_to_notebooklm_no_design_prompt_byte_identical(
+    monkeypatch, tmp_path
+):
+    """AC1: design_prompt=None produces the exact pre-feature prompt."""
+    client = _MockUploadClient()
+    _run_upload_to_notebooklm(
+        monkeypatch,
+        tmp_path,
+        client,
+        prompt_template="financial_extraction",
+        design_prompt=None,
+    )
+
+    assert len(client.artifacts.slide_deck_calls) == 1
+    instructions = client.artifacts.slide_deck_calls[0]["instructions"]
+    expected_base = PromptManager().render_prompt(
+        "financial_extraction", ContentType.SLIDE_DECK
+    )
+    assert instructions == expected_base
+
+
+def test_upload_to_notebooklm_design_prompt_appended_to_custom(
+    monkeypatch, tmp_path
+):
+    """AC1: design injection composes with the custom_prompt path."""
+    client = _MockUploadClient()
+    _run_upload_to_notebooklm(
+        monkeypatch,
+        tmp_path,
+        client,
+        prompt_template=None,
+        custom_prompt="CUSTOM_PROMPT_xyzzy",
+        design_prompt=_DESIGN_TEXT,
+    )
+
+    assert len(client.artifacts.slide_deck_calls) == 1
+    instructions = client.artifacts.slide_deck_calls[0]["instructions"]
+    assert instructions == "CUSTOM_PROMPT_xyzzy" + _DESIGN_BLOCK
+
+
+def test_upload_to_notebooklm_design_prompt_appended_to_fallback(
+    monkeypatch, tmp_path
+):
+    """AC1: design injection also lands on the default-template fallback."""
+    from streamdoc.config import settings
+
+    client = _MockUploadClient()
+    # No prompt_template and no custom_prompt -> settings.notebooklm_default_prompt
+    _run_upload_to_notebooklm(
+        monkeypatch,
+        tmp_path,
+        client,
+        prompt_template=None,
+        custom_prompt=None,
+        design_prompt=_DESIGN_TEXT,
+    )
+
+    assert len(client.artifacts.slide_deck_calls) == 1
+    instructions = client.artifacts.slide_deck_calls[0]["instructions"]
+    expected_base = PromptManager().render_prompt(
+        settings.notebooklm_default_prompt, ContentType.SLIDE_DECK
+    )
+    assert instructions == expected_base + _DESIGN_BLOCK
+
