@@ -62,6 +62,9 @@ tmp_test/
 *.bak
 *.tmp
 *.log
+# Stray download-test media (download partials / test output never committed)
+*.mp4.part
+test_*.mp4
 .DS_Store
 Thumbs.db
 .idea/
