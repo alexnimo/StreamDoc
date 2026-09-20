@@ -81,6 +81,7 @@ Thumbs.db
 .agents/
 .devin-*.json
 .devin-*.md
+.devin-pid
 devin-handoff.md
 qa-report.md
 _tmp_pypi.py

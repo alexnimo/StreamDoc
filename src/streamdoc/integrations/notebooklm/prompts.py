@@ -27,12 +27,15 @@ class PromptTemplate:
         target_types: Content types this template supports
         prompt: The prompt template string with {variable} placeholders
         variables: Default values for template variables
+        template_kind: Discriminator between "content" prompts and "design"
+            prompts. Only "content" and "design" are valid values.
     """
     name: str
     description: str
     target_types: list[ContentType] = field(default_factory=list)
     prompt: str = ""
     variables: dict[str, Any] = field(default_factory=dict)
+    template_kind: str = "content"
     
     def render(self, content_type: ContentType, **variables) -> str:
         """Render the prompt template with variables.
@@ -191,7 +194,8 @@ Context: {context}
                     description=data.get("description", ""),
                     target_types=target_types,
                     prompt=data.get("prompt", ""),
-                    variables=data.get("variables", {})
+                    variables=data.get("variables", {}),
+                    template_kind=data.get("template_kind", "content")
                 )
                 
                 self._templates[template.name] = template
@@ -297,7 +301,8 @@ Context: {context}
             "description": template.description,
             "target_types": [t.value for t in template.target_types],
             "prompt": template.prompt,
-            "variables": template.variables
+            "variables": template.variables,
+            "template_kind": template.template_kind
         }
         
         with open(template_file, "w", encoding="utf-8") as f:

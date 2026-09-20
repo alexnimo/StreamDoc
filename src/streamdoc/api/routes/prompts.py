@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from streamdoc.api.schemas import (
     PromptTemplateCreate,
@@ -32,14 +33,21 @@ def _to_out(t) -> PromptTemplateOut:
         target_types=[ct.value for ct in t.target_types],
         prompt=t.prompt,
         variables=t.variables,
+        template_kind=getattr(t, "template_kind", "content"),
     )
 
 
 @router.get("", response_model=list[PromptTemplateOut])
-def list_templates():
-    """List all available prompt templates."""
+def list_templates(kind: Literal["content", "design"] | None = Query(default=None)):
+    """List all available prompt templates, optionally filtered by kind."""
     mgr = _get_manager()
-    return [_to_out(t) for t in mgr.list_templates()]
+    templates = mgr.list_templates()
+    if kind is not None:
+        templates = [
+            t for t in templates
+            if getattr(t, "template_kind", "content") == kind
+        ]
+    return [_to_out(t) for t in templates]
 
 
 @router.get("/{name}", response_model=PromptTemplateOut)
@@ -75,6 +83,7 @@ def create_template(body: PromptTemplateCreate):
         target_types=target_types,
         prompt=body.prompt,
         variables=body.variables,
+        template_kind=body.template_kind,
     )
 
     try:
@@ -111,6 +120,11 @@ def update_template(name: str, body: PromptTemplateUpdate):
         target_types=target_types,
         prompt=body.prompt if body.prompt is not None else existing.prompt,
         variables=body.variables if body.variables is not None else existing.variables,
+        template_kind=(
+            body.template_kind
+            if body.template_kind is not None
+            else getattr(existing, "template_kind", "content")
+        ),
     )
 
     mgr.save_template(template)

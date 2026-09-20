@@ -45,6 +45,7 @@ def _to_out(p: Any) -> PresetOut:
         outputs=getattr(p, "outputs", None) or "",
         notebooklm_kind=getattr(p, "notebooklm_kind", None),
         notebooklm_prompt_template=getattr(p, "notebooklm_prompt_template", None),
+        design_prompt_template=getattr(p, "design_prompt_template", None),
         notebooklm_retry_failed=getattr(p, "notebooklm_retry_failed", True),
         notebooklm_retry_attempts=getattr(p, "notebooklm_retry_attempts", 1),
         notebooklm_retry_delay_minutes=getattr(p, "notebooklm_retry_delay_minutes", 5.0),
