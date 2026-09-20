@@ -137,6 +137,7 @@ def _run_lightweight_migrations(engine) -> None:
             ("retention_enabled", "BOOLEAN DEFAULT 1"),
             ("channel_names", "TEXT DEFAULT NULL"),
             ("notebooklm_prompt_template", "TEXT DEFAULT NULL"),
+            ("design_prompt_template", "TEXT DEFAULT NULL"),
             ("notebooklm_retry_failed", "BOOLEAN DEFAULT 1"),
             ("notebooklm_retry_attempts", "INTEGER DEFAULT 1"),
             ("notebooklm_retry_delay_minutes", "FLOAT DEFAULT 5.0"),

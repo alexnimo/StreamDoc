@@ -414,5 +414,137 @@ def test_upload_to_agy_herenow_failure_does_not_flip_success(
     assert result.herenow_url is None
 
 
+# ---------------------------------------------------------------------
+# POR-91 T2: design prompt injection across all three resolution paths
+# ---------------------------------------------------------------------
+
+_DESIGN_TEXT = "Use bold colors and wide margins"
+_DESIGN_BLOCK = f"\n\n<design>\n{_DESIGN_TEXT}\n</design>\n"
+
+
+def _capture_agy_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **kwargs
+) -> str:
+    """Drive upload_to_agy with mocks; return the prompt handed to run_skill."""
+    from streamdoc.core import agy_upload as agy_upload_mod
+    from streamdoc.integrations.agy import runner as runner_mod
+
+    _enable_agy(monkeypatch)
+    _patch_agy_output_dir(monkeypatch, tmp_path)
+
+    src_artifact = tmp_path / "out.html"
+    src_artifact.write_bytes(b"<html/>")
+    fake_run = AsyncMock(
+        return_value=runner_mod.AgyRunResult(
+            success=True,
+            artifact_path=src_artifact,
+            stdout="Artifact: " + str(src_artifact) + "\n",
+            stderr="",
+            exit_code=0,
+            error=None,
+            prompt_file=None,
+        )
+    )
+    monkeypatch.setattr(agy_upload_mod.runner_mod, "run_skill", fake_run)
+    monkeypatch.setattr(agy_upload_mod.herenow_mod, "publish", MagicMock())
+
+    in_pdf = tmp_path / "in.pdf"
+    in_pdf.write_bytes(b"%PDF")
+
+    asyncio.run(
+        agy_upload_mod.upload_to_agy(
+            report_paths=[in_pdf],
+            preset_name="t",
+            **kwargs,
+        )
+    )
+    assert fake_run.call_count == 1
+    return fake_run.call_args.kwargs["prompt"]
+
+
+def _expected_agy_prompt(
+    prompt_template: str | None,
+    custom_prompt: str | None,
+    report_paths: list[Path],
+) -> str:
+    """Reproduce the pre-feature prompt the old way (resolve + build)."""
+    from streamdoc.config import settings
+    from streamdoc.core.agy_upload import _build_agy_prompt, _resolve_prompt
+    from streamdoc.integrations.agy import runner as runner_mod
+    from streamdoc.integrations.notebooklm.prompts import PromptManager
+
+    prompts = PromptManager(
+        settings.agy_templates_dir,
+        settings.agy_sample_prompts_dir,
+    )
+    base = custom_prompt if custom_prompt else _resolve_prompt(
+        prompt_template, None, prompts
+    )
+    resolved_model = runner_mod.resolve_agy_model(
+        settings.agy_default_model or None
+    ) or None
+    return _build_agy_prompt(
+        base,
+        settings.agy_default_skill,
+        resolved_model,
+        report_paths,
+        is_custom=bool(custom_prompt),
+    )
+
+
+def test_upload_to_agy_design_prompt_template_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC2 (template path): <design> appended; None is byte-identical."""
+    baseline = _capture_agy_prompt(
+        monkeypatch, tmp_path, prompt_template="default"
+    )
+    expected = _expected_agy_prompt("default", None, [tmp_path / "in.pdf"])
+    # None-skip equality: the pre-feature string is produced verbatim.
+    assert baseline == expected
+
+    with_design = _capture_agy_prompt(
+        monkeypatch,
+        tmp_path,
+        prompt_template="default",
+        design_prompt=_DESIGN_TEXT,
+    )
+    assert with_design == expected + _DESIGN_BLOCK
+
+
+def test_upload_to_agy_design_prompt_custom_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC2 (custom path): <design> lands AFTER the verbatim pass-through."""
+    custom = "CUSTOM_PROMPT_TEXT_xyzzy"
+    baseline = _capture_agy_prompt(
+        monkeypatch, tmp_path, custom_prompt=custom
+    )
+    # Custom prompts pass through verbatim when design_prompt is None.
+    assert baseline == custom
+
+    with_design = _capture_agy_prompt(
+        monkeypatch,
+        tmp_path,
+        custom_prompt=custom,
+        design_prompt=_DESIGN_TEXT,
+    )
+    assert with_design == custom + _DESIGN_BLOCK
+
+
+def test_upload_to_agy_design_prompt_fallback_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """AC2 (fallback path): <design> appended to the fallback prompt too."""
+    baseline = _capture_agy_prompt(monkeypatch, tmp_path)
+    expected = _expected_agy_prompt(None, None, [tmp_path / "in.pdf"])
+    assert baseline == expected
+
+    with_design = _capture_agy_prompt(
+        monkeypatch, tmp_path, design_prompt=_DESIGN_TEXT
+    )
+    assert with_design == expected + _DESIGN_BLOCK
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

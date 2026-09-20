@@ -54,6 +54,9 @@ class Preset(Base):
     # global default (settings.notebooklm_default_prompt). When None or
     # empty, the global default is used.
     notebooklm_prompt_template: Mapped[str | None] = mapped_column(default=None)
+    # Reason: allow each preset to select a design-kind prompt template for
+    # design-focused generation. When None, no design template is applied.
+    design_prompt_template: Mapped[str | None] = mapped_column(default=None)
     # Reason: optional retry for NotebookLM generation failures. Sometimes
     # a failed slide deck succeeds on a later attempt, so the pipeline can
     # automatically resubmit the same prompt in the same notebook.

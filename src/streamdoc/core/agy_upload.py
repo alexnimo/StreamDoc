@@ -233,6 +233,7 @@ async def upload_to_agy(
     model: str | None = None,
     prompt_template: str | None = None,
     custom_prompt: str | None = None,
+    design_prompt: str | None = None,
     publish_herenow: bool = False,
     retention_hours: float | None = None,
     db_session: Session | None = None,
@@ -254,6 +255,10 @@ async def upload_to_agy(
             source for the prompt text.
         custom_prompt: Raw prompt text. Second-priority; overrides
             ``prompt_template`` when both are set (caller picks one).
+        design_prompt: Rendered design-template text. When set, a
+            ``<design>`` block is appended to the FINAL resolved prompt
+            on every resolution path (template, custom, fallback). When
+            None or blank, the prompt is byte-identical to before.
         publish_herenow: If True, after the content skill succeeds,
             invoke the herenow-publish skill against the produced
             artifact and capture the URL.
@@ -319,6 +324,10 @@ async def upload_to_agy(
             report_paths,
             is_custom=bool(custom_prompt),
         )
+        # Reason (POR-91 T2): the <design> append happens AFTER the
+        # _build_agy_prompt pass-through so it lands on custom prompts too.
+        if design_prompt and design_prompt.strip():
+            resolved_prompt += f"\n\n<design>\n{design_prompt}\n</design>\n"
     except Exception as exc:
         result.errors.append(f"prompt resolution failed: {exc}")
         return result
@@ -405,6 +414,7 @@ def send_reports_to_agy(
     prompt_template: str | None,
     custom_prompt: str | None,
     candidates_attempted: int = 0,
+    design_prompt: str | None = None,
 ) -> dict[str, str]:
     """Select report files for a preset and upload them to the agy backend.
 
@@ -420,6 +430,8 @@ def send_reports_to_agy(
         job_id: Active job ID passed to ``upload_to_agy`` for log correlation.
         prompt_template: Name of the agy prompt template to use (or None).
         custom_prompt: Raw custom prompt text (or None).
+        design_prompt: Rendered design-template text forwarded to
+            :func:`upload_to_agy` (or None).
         candidates_attempted: Number of videos that entered the processing
             phase. When > 0 and ``artifacts`` is empty, all downloads
             failed — the existing-report fallback must NOT trigger because
@@ -529,6 +541,7 @@ def send_reports_to_agy(
                 model=getattr(preset, "agy_model", None),
                 prompt_template=prompt_template,
                 custom_prompt=custom_prompt,
+                design_prompt=design_prompt,
                 publish_herenow=getattr(preset, "agy_publish_herenow", False),
             )
         )

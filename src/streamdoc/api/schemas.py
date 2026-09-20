@@ -19,6 +19,7 @@ class PresetOut(BaseModel):
     outputs: str = "pdf,markdown,notebooklm"
     notebooklm_kind: str | None = None
     notebooklm_prompt_template: str | None = None
+    design_prompt_template: str | None = None
     notebooklm_retry_failed: bool = True
     notebooklm_retry_attempts: int = 1
     notebooklm_retry_delay_minutes: float = 5.0
@@ -60,6 +61,7 @@ class PresetCreate(BaseModel):
     outputs: str = "pdf,markdown,notebooklm"
     notebooklm_kind: str | None = None
     notebooklm_prompt_template: str | None = None
+    design_prompt_template: str | None = None
     notebooklm_retry_failed: bool = True
     notebooklm_retry_attempts: int = 1
     notebooklm_retry_delay_minutes: float = 5.0
@@ -97,6 +99,7 @@ class PresetUpdate(BaseModel):
     outputs: str | None = None
     notebooklm_kind: str | None = None
     notebooklm_prompt_template: str | None = None
+    design_prompt_template: str | None = None
     notebooklm_retry_failed: bool = True
     notebooklm_retry_attempts: int = 1
     notebooklm_retry_delay_minutes: float = 5.0
@@ -643,6 +646,7 @@ class PromptTemplateOut(BaseModel):
     target_types: list[str] = Field(default_factory=list)
     prompt: str = ""
     variables: dict[str, Any] = Field(default_factory=dict)
+    template_kind: str = "content"
 
 
 class PromptTemplateCreate(BaseModel):
@@ -651,6 +655,7 @@ class PromptTemplateCreate(BaseModel):
     target_types: list[str] = Field(default_factory=list)
     prompt: str = ""
     variables: dict[str, Any] = Field(default_factory=dict)
+    template_kind: str = "content"
 
 
 class PromptTemplateUpdate(BaseModel):
@@ -658,6 +663,7 @@ class PromptTemplateUpdate(BaseModel):
     target_types: list[str] | None = None
     prompt: str | None = None
     variables: dict[str, Any] | None = None
+    template_kind: str | None = None
 
 
 # ---------------------------------------------------------------------------

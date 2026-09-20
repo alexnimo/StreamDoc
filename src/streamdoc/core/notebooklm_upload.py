@@ -30,6 +30,32 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _DesignAppendingPrompts:
+    """PromptManager façade that appends a ``<design>`` block to renders.
+
+    Reason (POR-91 T2): ``upload_to_notebooklm`` delegates the actual
+    prompt resolution to :meth:`ContentManager.generate_and_download`
+    (which calls ``prompts.render_prompt`` per content type). Wrapping the
+    manager here applies the design append at that single resolution point
+    so it composes with template-rendered AND fallback prompts. All other
+    attribute access is delegated to the wrapped manager.
+    """
+
+    def __init__(self, inner: PromptManager, design_block: str):
+        self._inner = inner
+        self._design_block = design_block
+
+    def render_prompt(self, template_name, content_type, **variables):
+        """Render via the inner manager, then append the design block."""
+        return (
+            self._inner.render_prompt(template_name, content_type, **variables)
+            + self._design_block
+        )
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 class NotebookLMUploadResult:
     """Result of NotebookLM upload and content generation.
     
@@ -85,6 +111,7 @@ async def upload_to_notebooklm(
     content_types: list[ContentType] | None = None,
     prompt_template: str | None = None,
     custom_prompt: str | None = None,
+    design_prompt: str | None = None,
     is_permanent: bool = False,
     retention_hours: float | None = None,
     db_session: "Session | None" = None,
@@ -118,6 +145,10 @@ async def upload_to_notebooklm(
         content_types: List of content types to generate
         prompt_template: Name of prompt template to use (highest priority)
         custom_prompt: Raw prompt text to use (second priority)
+        design_prompt: Rendered design-template text. When set, a
+            ``<design>`` block is appended to the FINAL resolved prompt on
+            every resolution path (template, custom, fallback). When None
+            or blank, the prompt is byte-identical to before.
         is_permanent: Whether to skip retention cleanup
         retention_hours: Custom retention period
         db_session: Database session for retention tracking
@@ -195,7 +226,21 @@ async def upload_to_notebooklm(
         settings.notebooklm_templates_dir,
         settings.notebooklm_sample_prompts_dir,
     )
-    
+
+    # Reason (POR-91 T2): append the <design> block to the FINAL resolved
+    # prompt on every exit path. Template + fallback renders are wrapped
+    # via _DesignAppendingPrompts; the custom path appends directly. When
+    # no prompt source resolves at all, the design block alone becomes the
+    # custom prompt so it still reaches NotebookLM.
+    if design_prompt and design_prompt.strip():
+        design_block = f"\n\n<design>\n{design_prompt}\n</design>\n"
+        if prompt_template:
+            prompts = _DesignAppendingPrompts(prompts, design_block)
+        elif custom_prompt:
+            custom_prompt = custom_prompt + design_block
+        else:
+            custom_prompt = design_block
+
     try:
         async with NotebookLMClientWrapper(auth_manager) as client:
             notebooks = NotebookManager(client)
