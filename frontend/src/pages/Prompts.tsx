@@ -21,6 +21,7 @@ const emptyPrompt: Partial<PromptTemplate> = {
   target_types: ['slide_deck', 'infographic'],
   prompt: '',
   variables: {},
+  template_kind: 'content',
 }
 
 const contentTypeOptions = [
@@ -28,6 +29,11 @@ const contentTypeOptions = [
   { value: 'podcast', label: 'Podcast' },
   { value: 'infographic', label: 'Infographic' },
   { value: 'report', label: 'Report' },
+]
+
+const templateKindOptions: { value: 'content' | 'design'; label: string }[] = [
+  { value: 'content', label: 'Content' },
+  { value: 'design', label: 'Design' },
 ]
 
 export default function Prompts() {
@@ -58,7 +64,8 @@ export default function Prompts() {
 
   const openEdit = (p: PromptTemplate) => {
     setEditing(p)
-    setForm(p)
+    // Reason: older templates may lack template_kind; normalize so the update payload always sends the existing kind.
+    setForm({ ...p, template_kind: p.template_kind || 'content' })
     setDialogOpen(true)
   }
 
@@ -108,6 +115,94 @@ export default function Prompts() {
     }
   }
 
+  // Reason: templates without a kind are legacy "content" templates (server defaults missing kind to "content").
+  const contentTemplates = prompts.filter((p) => p.template_kind !== 'design')
+  const designTemplates = prompts.filter((p) => p.template_kind === 'design')
+
+  const renderTemplateCard = (p: PromptTemplate) => (
+    <Card key={p.name} className="hover:shadow-md transition-shadow">
+      <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
+        <CardTitle className="text-sm">{p.name}</CardTitle>
+        <div className="flex shrink-0 gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => copyPrompt(p)}
+            title="Copy prompt text"
+          >
+            {copiedName === p.name ? (
+              <Check className="h-3.5 w-3.5 text-primary" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteName(p.name)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-0">
+        <p className="text-xs text-muted-foreground">{p.description}</p>
+        <div className="flex flex-wrap gap-1">
+          {p.target_types.map((t) => (
+            <span
+              key={t}
+              className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
+            >
+              {t.replace('_', ' ')}
+            </span>
+          ))}
+        </div>
+        <div className="rounded-md bg-muted/50 p-2.5">
+          <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {p.prompt.slice(0, 500)}
+            {p.prompt.length > 500 && '...'}
+          </pre>
+        </div>
+        {Object.keys(p.variables).length > 0 && (
+          <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+            <span>Variables:</span>
+            {Object.keys(p.variables).map((v) => (
+              <span key={v} className="font-mono text-primary">
+                {`{${v}}`}
+              </span>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  const renderSection = (
+    title: string,
+    description: string,
+    templates: PromptTemplate[],
+    emptyMessage: string,
+  ) => (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-medium">{title}</h2>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {templates.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center">
+            <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
+            <p className="text-xs text-muted-foreground">{emptyMessage}</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {templates.map(renderTemplateCard)}
+        </div>
+      )}
+    </section>
+  )
+
   if (loading) {
     return <div className="animate-pulse py-20 text-center text-muted-foreground text-sm">Loading prompts...</div>
   }
@@ -120,7 +215,7 @@ export default function Prompts() {
           <p className="text-sm text-muted-foreground">Create and manage prompts for NotebookLM content generation</p>
         </div>
         <Button onClick={openCreate} size="sm" className="gap-1.5">
-          <Plus className="h-3.5 w-3.5" /> New Prompt
+          <Plus className="h-3.5 w-3.5" /> New Template
         </Button>
       </div>
 
@@ -130,79 +225,23 @@ export default function Prompts() {
         </div>
       )}
 
-      {prompts.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center">
-            <FileText className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" />
-            <p className="text-xs text-muted-foreground">No prompt templates yet.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {prompts.map((p) => (
-            <Card key={p.name} className="hover:shadow-md transition-shadow">
-              <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
-                <CardTitle className="text-sm">{p.name}</CardTitle>
-                <div className="flex shrink-0 gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => copyPrompt(p)}
-                    title="Copy prompt text"
-                  >
-                    {copiedName === p.name ? (
-                      <Check className="h-3.5 w-3.5 text-primary" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(p)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDeleteName(p.name)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2 pt-0">
-                <p className="text-xs text-muted-foreground">{p.description}</p>
-                <div className="flex flex-wrap gap-1">
-                  {p.target_types.map((t) => (
-                    <span
-                      key={t}
-                      className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary"
-                    >
-                      {t.replace('_', ' ')}
-                    </span>
-                  ))}
-                </div>
-                <div className="rounded-md bg-muted/50 p-2.5">
-                  <pre className="max-h-32 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                    {p.prompt.slice(0, 500)}
-                    {p.prompt.length > 500 && '...'}
-                  </pre>
-                </div>
-                {Object.keys(p.variables).length > 0 && (
-                  <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
-                    <span>Variables:</span>
-                    {Object.keys(p.variables).map((v) => (
-                      <span key={v} className="font-mono text-primary">
-                        {`{${v}}`}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      {renderSection(
+        'Content Templates',
+        'Prompts that define what content to generate and how to structure it.',
+        contentTemplates,
+        'No content templates yet.',
+      )}
+      {renderSection(
+        'Design Templates',
+        'Design templates describe how the output looks — visual style and layout instructions — not what to extract.',
+        designTemplates,
+        'No design templates yet.',
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base">{editing ? 'Edit Prompt' : 'Create Prompt'}</DialogTitle>
+            <DialogTitle className="text-base">{editing ? 'Edit Template' : 'Create Template'}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-1.5">
@@ -223,6 +262,31 @@ export default function Prompts() {
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 placeholder="What this prompt does..."
               />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Template Kind</Label>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Template kind">
+                {templateKindOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    disabled={!!editing}
+                    onClick={() => setForm((f) => ({ ...f, template_kind: opt.value }))}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      (form.template_kind || 'content') === opt.value
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {editing
+                  ? 'Template kind cannot be changed after creation.'
+                  : 'Content prompts define what to generate; design prompts define how the output looks.'}
+              </p>
             </div>
             <div className="grid gap-1.5">
               <Label className="text-xs">Target Content Types</Label>

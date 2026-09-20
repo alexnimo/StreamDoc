@@ -1,6 +1,8 @@
-import { MessageSquare, FileText } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { MessageSquare, FileText, Palette } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -53,6 +55,25 @@ export function PromptSection({
       : activeBackend === 'notebooklm'
         ? 'Custom instructions sent to NotebookLM and embedded in the report header...'
         : 'Custom instructions embedded in the report header...'
+
+  const designTemplates = promptTemplates.filter((t) => t.template_kind === 'design')
+  // Reason: OFF means the field is null/absent; local state lets the switch stay ON
+  // even before a template is selected (e.g. to show the empty-list hint).
+  const [designEnabled, setDesignEnabled] = useState(preset.design_prompt_template != null)
+  useEffect(() => {
+    setDesignEnabled(preset.design_prompt_template != null)
+  }, [preset.design_prompt_template])
+  const selectedDesignTemplate = designTemplates.find(
+    (t) => t.name === preset.design_prompt_template,
+  )
+
+  const handleDesignToggle = (enabled: boolean) => {
+    setDesignEnabled(enabled)
+    if (!enabled) {
+      // Reason: write an explicit null so a stale template name is never left on the preset.
+      update({ design_prompt_template: null })
+    }
+  }
 
   return (
     <div className="rounded-md border border-border p-3 space-y-3">
@@ -130,6 +151,76 @@ export function PromptSection({
           </p>
         </div>
       )}
+
+      <div className="grid gap-1.5 border-t border-border pt-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Palette className="h-3.5 w-3.5 text-primary" />
+            <Label className="text-xs font-medium">Design Prompt (optional)</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="design-template-enabled" className="text-xs text-muted-foreground">
+              Enable design template
+            </Label>
+            <Switch
+              id="design-template-enabled"
+              checked={designEnabled}
+              onCheckedChange={handleDesignToggle}
+              disabled={disabled}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Apply a design template that controls how the generated output looks — layout, styling, and visual structure.
+        </p>
+
+        {designEnabled && designTemplates.length === 0 && (
+          <p className="text-xs text-muted-foreground">Create design templates on the Prompts page</p>
+        )}
+
+        {designEnabled && designTemplates.length > 0 && (
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Design Template</Label>
+            <Select
+              value={preset.design_prompt_template || undefined}
+              onValueChange={(v) => update({ design_prompt_template: v })}
+              disabled={disabled}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a design template" />
+              </SelectTrigger>
+              <SelectContent>
+                {designTemplates.map((template) => (
+                  <SelectItem key={template.name} value={template.name}>
+                    {template.name}
+                    {template.description ? ` — ${template.description}` : ''}
+                  </SelectItem>
+                ))}
+                {preset.design_prompt_template && !selectedDesignTemplate && (
+                  <SelectItem value={preset.design_prompt_template}>
+                    {preset.design_prompt_template} — template not found
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {designEnabled && selectedDesignTemplate && (
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Design Template Preview</Label>
+            <Textarea
+              value={selectedDesignTemplate.prompt}
+              rows={4}
+              readOnly
+              className="bg-muted/50 cursor-not-allowed"
+            />
+            <p className="text-xs text-muted-foreground">
+              This is a read-only preview of the selected design template. Edit it on the Prompts page.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

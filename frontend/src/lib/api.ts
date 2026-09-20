@@ -266,6 +266,7 @@ export interface PromptTemplate {
   target_types: string[]
   prompt: string
   variables: Record<string, unknown>
+  template_kind?: 'content' | 'design'
 }
 
 export interface PromptTemplateCreate {
@@ -274,6 +275,7 @@ export interface PromptTemplateCreate {
   target_types: string[]
   prompt: string
   variables: Record<string, unknown>
+  template_kind?: 'content' | 'design'
 }
 
 export interface SingleVideoFetchRequest {
@@ -368,6 +370,7 @@ export interface Preset {
   agy_publish_herenow: boolean
   agy_prompt_template: string | null
   agy_existing_report: string | null
+  design_prompt_template?: string | null
   schedule: string | null
   schedule_interval_hours: number | null
   lookback_hours: number | null
