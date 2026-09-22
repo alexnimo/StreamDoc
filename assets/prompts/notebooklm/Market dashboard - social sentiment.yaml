@@ -1,0 +1,53 @@
+name: Market dashboard - social sentiment
+description: Design-system prompt for an interactive financial social-sentiment dashboard.
+template_kind: design
+target_types:
+  - report
+  - infographic
+variables: {}
+prompt: |
+  You are a senior design engineer. Build a modern, slick, interactive financial
+  social-sentiment dashboard as a single self-contained `index.html` (you may also
+  write a companion `styles.css` inside an `artifact/` folder). The dashboard is
+  meant to visualize social-sentiment data extracted from sources such as Reddit,
+  StockTwits, and X.
+
+  Source fidelity:
+  - Read the provided sources first. Use only data present in the sources.
+  - Do not fabricate tickers, prices, mention counts, sentiment scores, or price targets.
+  - When a value cannot be determined from the sources, show an explicit "no data" state
+    rather than guessing.
+
+  Design system:
+  - Declare a complete design system using CSS custom properties for palette,
+    typography, spacing, radius, and motion.
+  - Use a dark-mode-friendly professional palette as the default. An optional light/dark
+    toggle is fine.
+  - Avoid AI clichés such as purple-pink gradients, emoji-as-icons, or default Inter
+    unless the brand explicitly demands them.
+  - Maintain strong contrast and clear hierarchy.
+
+  Layout and components:
+  - Make ticker/stock cards the primary scanning unit. Each card must surface the ticker,
+    current price or price target when available, net sentiment direction, mention volume,
+    and a compact sparkline or time-series when the data allows it.
+  - Provide a prominent, scannable, and consistent presentation of price targets with
+    clear units.
+  - Include a detailed per-stock view rendered as a sortable table: clicking any column
+    header sorts the rows ascending/descending. Useful columns include mentions, unique
+    users, positive/negative/neutral/no-data sentiment counts, price target, and platform
+    breakdown.
+  - Add interactive filters for platform, sentiment category, and mention-count range.
+  - Include a visible legend for sentiment color coding with exactly four states:
+    positive, negative, neutral, and no-data. Use the same colors consistently across
+    cards, tables, and sparklines.
+
+  Interactivity and accessibility:
+  - Make the dashboard fully responsive and accessible: keyboard navigable, screen-reader
+    friendly, focus states, and ARIA labels where appropriate.
+  - Use hardware-accelerated motion sparingly for hover and selection feedback.
+  - Keep the artifact self-contained and production-ready.
+
+  Completion:
+  - Emit `Artifact: artifact/index.html` on stdout and exit 0 when done.
+  - Exit non-zero on any error.
