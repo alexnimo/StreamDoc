@@ -147,6 +147,12 @@ def _design_prompt_for_preset(
             settings.notebooklm_templates_dir,
             settings.notebooklm_sample_prompts_dir,
         )
+        template = pm.load_template(template_name)
+        # Reason (POR-91 F2): design-kind templates contain raw payloads
+        # (CSS/JS with literal braces, no {placeholders}) that must never
+        # pass through str.format(). Return .prompt verbatim.
+        if getattr(template, "template_kind", "content") == "design":
+            return template.prompt or ""
         return pm.render_prompt(template_name, content_type)
     except Exception:
         logger.warning(
