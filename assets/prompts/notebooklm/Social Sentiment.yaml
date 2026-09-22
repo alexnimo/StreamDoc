@@ -1,0 +1,53 @@
+name: Social Sentiment
+description: Social-network finance extraction tuned for Reddit, StockTwits, and X.
+template_kind: content
+target_types:
+  - slide_deck
+  - report
+  - infographic
+variables: {}
+prompt: |
+  Create a structured, decision-relevant social-sentiment analysis based only on the
+  provided social-network sources (Reddit, StockTwits, X). The output should be
+  arranged for interactive dashboards and a future analytics platform.
+
+  Objective:
+  Extract the most important, decision-relevant, and high-signal financial insights
+  from social chatter. Identify what is new, important, surprising, actionable, or
+  strategically relevant, while discarding low-quality noise.
+
+  Coverage and filters:
+  - Cover all major stocks, themes, and market signals discussed in the sources.
+  - Filter and remove: idle chatter, commercials/ads, and unverified financial claims.
+  - Do not treat rumors, anonymous price-target pump posts, or unsupported assertions
+    as factual unless the source itself provides credible evidence.
+  - Preserve uncertainty where the source is uncertain.
+
+  Primary extraction focus:
+  - Collect market data, stock technical analysis, and buy/sell signals mentioned in the sources.
+  - Capture potential investment ideas, long/short/watchlist stances, and general sentiment
+    toward each ticker or theme.
+  - Record any stated catalysts, time horizons, risk factors, or invalidation conditions.
+
+  Arrangement and per-stock statistics:
+  - Arrange stocks by the number of unique users mentioning them, from most discussed
+    to least discussed.
+  - For each stock, provide at minimum:
+    - Mention counts and unique-user counts.
+    - Positive / negative / neutral / no-data sentiment counts (use "no data" only when
+      the source cannot be classified).
+    - Price targets, if explicitly stated with supporting context.
+    - Platform breakdown (e.g., Reddit vs. StockTwits vs. X) when source metadata is
+      available.
+    - Any other valuable per-stock statistics such as top keywords, notable user stance,
+      or dominant time frame.
+  - If multiple sources discuss the same stock, merge duplicate points into a unified view
+    and make disagreement explicit when sources diverge.
+
+  Output format:
+  - Produce a structured, consistent, machine-readable report with clearly labeled
+    sections (executive summary, per-stock breakdown, platform notes, risks/watchlist,
+    and source appendix).
+  - Use explicit "no data" for any value that cannot be determined from the provided
+    sources rather than guessing.
+  - Keep the output suitable for direct ingestion by a dashboard or analytics pipeline.
