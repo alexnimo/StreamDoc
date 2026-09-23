@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from streamdoc.config import Settings
 from streamdoc.core.jobs import _send_to_destination
 from streamdoc.db import init_db, session_scope
 from streamdoc.models.preset import Preset as PresetModel
@@ -50,13 +49,12 @@ def _isolate_template_dirs(monkeypatch, tmp_path):
 @pytest.fixture
 def _isolated_db(tmp_path, monkeypatch):
     """Provide a fresh in-memory DB and isolated output root."""
+    from streamdoc.config import settings
+
     db_path = tmp_path / "test.sqlite"
     output_root = tmp_path / "outputs"
-    s = Settings(
-        db_path=str(db_path),
-        output_root=str(output_root),
-    )
-    monkeypatch.setattr("streamdoc.config.settings", s)
+    monkeypatch.setattr(settings, "db_path", str(db_path))
+    monkeypatch.setattr(settings, "output_root", str(output_root))
     init_db()
 
 
