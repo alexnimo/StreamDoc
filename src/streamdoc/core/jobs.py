@@ -10,6 +10,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from streamdoc.db import session_scope
@@ -414,6 +415,7 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
         notebook_retention_hours = None
         retention_enabled = True
         prompt_template = None
+        design_prompt_template = None
         if preset_name:
             with session_scope() as session:
                 p = session.get(PresetModel, preset_name)
@@ -427,6 +429,7 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
                     # set (handled in upload_to_notebooklm).
                     prompt_template = getattr(p, "notebooklm_prompt_template", None) or None
                     custom_prompt = (getattr(p, "prompt_md", "") or "").strip() or None
+                    design_prompt_template = getattr(p, "design_prompt_template", None)
 
         content_types = []
         if notebooklm_kind:
@@ -434,6 +437,15 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
                 content_types = [ContentType(notebooklm_kind)]
             except ValueError:
                 pass
+
+        from streamdoc.core.fetch import _design_prompt_for_preset
+        preset_shim = SimpleNamespace(design_prompt_template=design_prompt_template)
+        # Reason: lightweight shim to avoid detached-instance attribute access
+        # after the DB session closes; _design_prompt_for_preset only reads
+        # design_prompt_template.
+        design_prompt = _design_prompt_for_preset(
+            preset_shim, content_types[0] if content_types else ContentType.REPORT  # type: ignore[arg-type]
+        )
 
         from streamdoc.async_utils import run_async
         # Reason: notebooklm_kind is a content type (e.g. "slide_deck"), NOT a
@@ -450,6 +462,7 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
             content_types=content_types if content_types else None,
             prompt_template=prompt_template,
             custom_prompt=custom_prompt,
+            design_prompt=design_prompt,
             retention_hours=notebook_retention_hours,
             is_permanent=not retention_enabled,
         ))
