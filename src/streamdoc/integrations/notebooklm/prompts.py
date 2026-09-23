@@ -145,28 +145,76 @@ Context: {context}
         self._load_custom_templates()
 
     def _seed_from_samples(self) -> None:
-        """Seed the templates directory from sample prompts on first run.
+        """Seed the templates directory from sample prompts, additively.
 
-        If templates_dir exists but has no .yaml files, copy all .yaml files
-        from sample_prompts_dir. This gives users a starting set of prompts
-        in their gitignored config/ directory without polluting tracked files.
-        User edits and new prompts stay in config/ and are never committed.
+        A ``.seeded_samples`` manifest inside templates_dir records which
+        sample basenames have already been seeded. The seen-set is the
+        manifest lines unioned with the .yaml basenames currently in
+        templates_dir — the union is a safety net so that a lost or
+        never-written manifest cannot cause re-copying over user files.
+        Samples whose basename is not in the seen-set are copied, then
+        the full seen-set is written back to the manifest.
+
+        First run on an existing install (no manifest but >=1 .yaml
+        present): all shipped sample basenames are written to the
+        manifest as seen and nothing is copied — a user-deleted template
+        is indistinguishable from one that was never seeded, so we
+        conservatively resurrect nothing.
+
+        On any manifest IO error, falls back to the original behavior:
+        copy all samples only when templates_dir has no .yaml files.
         """
         if not self.templates_dir or not self.sample_prompts_dir:
             return
         if not self.sample_prompts_dir.exists():
             return
 
-        # Reason: only seed if the target dir is empty (first run or fresh clone).
-        # If the user deleted all prompts, we respect that — no re-seeding.
         self.templates_dir.mkdir(parents=True, exist_ok=True)
-        existing = list(self.templates_dir.glob("*.yaml"))
-        if existing:
-            return
+        try:
+            manifest_path = self.templates_dir / ".seeded_samples"
+            manifest_exists = manifest_path.exists()
+            existing_names = {p.name for p in self.templates_dir.glob("*.yaml")}
+            seen = set(existing_names)
+            if manifest_exists:
+                seen |= {
+                    line.strip()
+                    for line in manifest_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                }
 
-        for sample_file in self.sample_prompts_dir.glob("*.yaml"):
-            dest = self.templates_dir / sample_file.name
-            shutil.copy2(sample_file, dest)
+            sample_files = sorted(
+                self.sample_prompts_dir.glob("*.yaml"), key=lambda p: p.name
+            )
+            if not manifest_exists and existing_names:
+                # Reason: existing install upgrading to manifest-based
+                # seeding — mark every shipped sample as seen so a
+                # user-deleted template is not resurrected.
+                manifest_path.write_text(
+                    "".join(f"{p.name}\n" for p in sample_files),
+                    encoding="utf-8",
+                )
+                return
+
+            for sample_file in sample_files:
+                if sample_file.name in seen:
+                    continue
+                shutil.copy2(sample_file, self.templates_dir / sample_file.name)
+                seen.add(sample_file.name)
+
+            manifest_path.write_text(
+                "".join(f"{name}\n" for name in sorted(seen)),
+                encoding="utf-8",
+            )
+        except Exception:
+            # Reason: seeding must never break init. On manifest IO errors,
+            # fall back to the original empty-dir-only behavior.
+            try:
+                if not list(self.templates_dir.glob("*.yaml")):
+                    for sample_file in self.sample_prompts_dir.glob("*.yaml"):
+                        dest = self.templates_dir / sample_file.name
+                        shutil.copy2(sample_file, dest)
+            except OSError:
+                pass
 
     def _load_custom_templates(self) -> None:
         """Load custom templates from templates directory."""
