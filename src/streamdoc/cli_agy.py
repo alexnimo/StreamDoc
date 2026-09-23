@@ -224,8 +224,9 @@ def agy_run(preset: str) -> None:
     # placeholder string since the CLI run doesn't create a full pipeline job.
     job_id = f"cli-agy-{preset}"
 
-    from streamdoc.core.agy_upload import upload_to_agy
     from streamdoc.async_utils import run_async
+    from streamdoc.core.agy_upload import _DEFAULT_AGY_CONTENT_TYPE, upload_to_agy
+    from streamdoc.core.fetch import _design_prompt_for_preset
 
     prompt_args = prompt_args_for_preset(loaded_preset, "agy")
 
@@ -253,6 +254,7 @@ def agy_run(preset: str) -> None:
         model=getattr(loaded_preset, "agy_model", None),
         prompt_template=prompt_args["prompt_template"],
         custom_prompt=prompt_args["custom_prompt"],
+        design_prompt=_design_prompt_for_preset(loaded_preset, _DEFAULT_AGY_CONTENT_TYPE),
         publish_herenow=getattr(loaded_preset, "agy_publish_herenow", False),
     ))
 
