@@ -15,6 +15,7 @@ class ContentType(str, Enum):
     PODCAST = "podcast"  # audio overview
     INFOGRAPHIC = "infographic"
     REPORT = "report"
+    INTERACTIVE_DASHBOARD = "interactive_dashboard"
 
 
 @dataclass
