@@ -75,6 +75,8 @@ Thumbs.db
 .hermes/
 .devin/config.local.json
 .devin/plans/
+# Factory harness session snapshots (metadata + transcript; never committed)
+.factory-result-*
 
 # ── Local agent instructions & scratch (never committed) ──────────────
 # Reason: .agents/ holds local PRD/SYSTEM/skill working copies for coding

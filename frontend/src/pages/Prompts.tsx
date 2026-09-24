@@ -29,6 +29,7 @@ const contentTypeOptions = [
   { value: 'podcast', label: 'Podcast' },
   { value: 'infographic', label: 'Infographic' },
   { value: 'report', label: 'Report' },
+  { value: 'interactive_dashboard', label: 'Interactive Dashboard' },
 ]
 
 const templateKindOptions: { value: 'content' | 'design'; label: string }[] = [
@@ -306,6 +307,11 @@ export default function Prompts() {
                   </button>
                 ))}
               </div>
+              <p className="text-xs text-muted-foreground">
+                {(form.template_kind || 'content') === 'design'
+                  ? 'Design templates render against every content type — these are informational tags only.'
+                  : 'Content templates must list every content type they support — rendering is gated to these.'}
+              </p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="prompt-text" className="text-xs">Prompt Text</Label>
