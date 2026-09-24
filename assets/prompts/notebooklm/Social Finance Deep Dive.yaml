@@ -1,0 +1,99 @@
+name: Social Finance Deep Dive
+description: Deep financial extraction tuned for social sources (Reddit, StockTwits, X/Twitter) with a dominant research-and-facts section.
+template_kind: content
+target_types:
+  - slide_deck
+  - report
+  - infographic
+variables: {}
+prompt: |
+  Create a structured, decision-relevant deep-dive financial analysis based only
+  on the provided social-network sources (Reddit, StockTwits, X/Twitter). The
+  output should be arranged for interactive dashboards and a future analytics
+  platform.
+
+  Objective:
+  Extract every interesting fact and piece of financially relevant information
+  from the social chatter. The output is FINANCIAL DATA ONLY.
+
+  Coverage and filters:
+  - Cover all major stocks, themes, and market signals discussed in the sources.
+  - Aggressively filter out: commercial content and ads, self-promotion, jokes,
+    memes, off-topic chatter, and any other non-related or non-financial data.
+  - Do not treat rumors, anonymous price-target pump posts, or unsupported
+    assertions as factual unless the source itself provides credible evidence.
+  - Preserve uncertainty where the source is uncertain.
+
+  Structure (research & facts is dominant):
+  - The Research & facts section is the core of the output and must carry most
+    of the extracted data. Other sections may summarize or reference it, but
+    they must not replace it.
+  - Suggested flow: executive summary; research & facts (dominant); per-stock
+    deep dives; technical analysis; predictions; trade ideas and signals;
+    risks/watchlist; source appendix.
+
+  Per-stock arrangement (superset of the social-sentiment layout):
+  - Arrange stocks by the number of unique users mentioning them, from most
+    discussed to least discussed.
+  - For each stock, provide at minimum:
+    - Mention counts and unique-user counts.
+    - Positive / negative / neutral / no-data sentiment counts (use "no data"
+      only when the source cannot be classified).
+    - Price targets, if explicitly stated with supporting context.
+    - Platform breakdown (e.g., Reddit vs. StockTwits vs. X/Twitter) when source
+      metadata is available.
+    - Top keywords, notable user stances, dominant time frame, and any other
+      valuable per-stock statistics.
+  - If multiple sources discuss the same stock, merge duplicate points into a
+    unified view and make disagreement explicit when sources diverge.
+
+  Long-term thesis vs. short-term noise:
+  - For each asset, state the long-term investment thesis in its own block,
+    clearly separated from short-term catalysts, intraday chatter, and noise.
+  - Note which claims support the long-term thesis and which are purely
+    short-term trading commentary.
+
+  Technical analysis (precise levels required):
+  - Capture every indicator mentioned in the sources with PRECISE numeric
+    levels: RSI values, MACD line/signal/histogram readings, moving-average
+    values and crossovers, volume figures, and any other indicator the sources
+    mention.
+  - Report exact numbers (for example, "RSI at 31") - never vague phrasing such
+    as "near oversold" or "elevated volume".
+  - List support and resistance levels explicitly, per asset, with exact
+    prices.
+
+  Predictions:
+  - Record every prediction with the source or user handle that made it and the
+    stated or implied time horizon.
+  - Distinguish clearly between factual developments, interpretation, and
+    speculative outlook.
+
+  Financial breakdowns:
+  - Capture valuation discussion, earnings and guidance figures, revenue and
+    margin data, fund/ETF flows, positioning, and any other quantitative
+    financial breakdown present in the sources.
+
+  Signals and trade ideas:
+  - Capture buy / sell / accumulate / hold signals and who issued them.
+  - Record trade ideas with entry, target, and stop-loss levels when stated.
+  - Record technical signals (breakouts, breakdowns, crossovers, divergences)
+    together with the exact levels at which they trigger.
+
+  Charts:
+  - Collect and aggregate any chart data points present in the sources (price
+    series, drawn levels, indicator readings over time) so they can be rendered
+    or re-created downstream.
+
+  Attribution:
+  - Attribute every material claim, statistic, prediction, or signal to its
+    data source and user handle.
+  - If a claim cannot be attributed, label it as unattributed rather than
+    dropping the attribution or inventing a source.
+
+  Output format:
+  - Produce a structured, consistent, machine-readable report with clearly
+    labeled sections, suitable for direct ingestion by a dashboard or
+    analytics pipeline.
+  - Use explicit "no data" for any value that cannot be determined from the
+    provided sources rather than guessing.

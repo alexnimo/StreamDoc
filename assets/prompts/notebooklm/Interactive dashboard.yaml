@@ -1,0 +1,83 @@
+name: Interactive dashboard
+description: Design-system prompt for a slick, modern, multi-view interactive dashboard built from collected financial data.
+template_kind: design
+target_types:
+  - interactive_dashboard
+  - report
+variables: {}
+prompt: |
+  You are a senior design engineer. Build a modern, slick, INTERACTIVE financial
+  dashboard as a single self-contained `index.html` (you may also write a
+  companion `styles.css` inside an `artifact/` folder). The dashboard visualizes
+  data collected from financial social sources such as Reddit, StockTwits, and
+  X/Twitter, plus any attached research reports. This prompt is skill-agnostic:
+  apply it with whichever dashboard-generation skill or runtime is available.
+
+  Source fidelity:
+  - Read the provided sources first. Use only data present in the sources.
+  - Do not fabricate tickers, prices, users, sentiment scores, chart values, or
+    statistics.
+  - When a value cannot be determined from the sources, render an explicit
+    "no data" state rather than guessing.
+
+  Data contract - shape the application around this structure:
+  - Stocks: a list where each entry holds the ticker/name, a technical-analysis
+    list (each item: signal or indicator, precise level, interpretation, and
+    source), an indicators list (RSI, MACD, moving averages, volume, and any
+    other reported indicator with exact values), the users the information was
+    assembled from, the charts associated with the stock, and all facts,
+    financial, and informative data collected for it.
+  - Industries: a list (for example energy, healthcare, fintech) where each
+    entry holds the sector name, all stocks belonging to that sector, a sector
+    summary, and an aggregate sentiment.
+  - Users: a list where each entry holds the handle, platform, and every piece
+    of data collected from that user (claims, analyses, price targets,
+    sentiment stance, charts).
+  - Parse whatever the sources actually provide into this shape; leave missing
+    pieces as explicit "no data" rather than inventing structure.
+
+  Views and navigation (multi-view HTML app):
+  - Provide global navigation between at least three views: per-stock,
+    per-user, and per-industry.
+  - Per-stock view: the full picture for one stock - every contributing user
+    with their relevant data and analysis, technical-analysis and indicator
+    levels, price targets, sentiment breakdown, and associated charts.
+  - Per-user view: everything collected from a single user - their claims,
+    covered tickers, predictions, sentiment stance, and charts.
+  - Per-industry view: the sector summary, aggregate sentiment, and all stocks
+    in the sector, each linking into its per-stock view.
+  - Make the screens interactive throughout: navigation, filters (platform,
+    sentiment, mention volume, sector), sorting, search, and drill-down links
+    between views.
+
+  Charts and visuals:
+  - Surface every chart collected or uploaded from the report.
+  - When the runtime supports it, re-create charts into more visual and
+    appealing representations (cleaner axes, readable labels, consistent color
+    coding). Re-created charts must plot only values present in the sources,
+    keep units and time ranges intact, and credit the original source - never
+    smooth, extend, or invent data points.
+  - Combine text and visuals throughout: pair every major data block with an
+    appropriate visual treatment instead of presenting walls of text.
+
+  Design system:
+  - Declare a complete design system using CSS custom properties for palette,
+    typography, spacing, radius, and motion.
+  - Use a dark-mode-friendly professional palette as the default. An optional
+    light/dark toggle is fine.
+  - Avoid AI cliches such as purple-pink gradients, emoji-as-icons, or default
+    Inter unless the brand explicitly demands them.
+  - Maintain strong contrast and clear hierarchy; keep layouts information-
+    dense but scannable.
+
+  Interactivity and accessibility:
+  - Make the dashboard fully responsive and accessible: keyboard navigable,
+    screen-reader friendly, visible focus states, and ARIA labels where
+    appropriate.
+  - Use hardware-accelerated motion sparingly for hover and selection feedback,
+    and respect prefers-reduced-motion.
+  - Keep the artifact self-contained and production-ready.
+
+  Completion:
+  - Emit `Artifact: artifact/index.html` on stdout and exit 0 when done.
+  - Exit non-zero on any error.
