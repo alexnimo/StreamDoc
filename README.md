@@ -297,6 +297,8 @@ StreamDoc ships with sample prompt templates in `assets/prompts/notebooklm/` (tr
 - **Sample prompts** in `assets/prompts/notebooklm/` remain read-only references.
 - To add a new "template prompt" for all users: add a `.yaml` file to `assets/prompts/notebooklm/` and commit it. Existing users can copy it manually; new clones get it via the seed-on-first-run.
 
+A template's `target_types` declares which content types it can render: `slide_deck`, `podcast`, `infographic`, `report`, and `interactive_dashboard` — the latter marks prompts that build a slick, multi-view interactive HTML dashboard (per-stock / per-user / per-industry views) from collected report data, intended to be applied with a dashboard-generation skill.
+
 This separation prevents accidental commits of user-specific prompts while keeping the repo shippable with good defaults.
 
 ## CLI reference
