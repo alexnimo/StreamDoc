@@ -70,11 +70,14 @@ def test_fresh_install_copies_all_samples(tmp_path):
     assert _manifest_lines(templates_dir) == set(SAMPLE_NAMES)
 
 
-def test_existing_install_without_manifest_copies_nothing(tmp_path):
-    """Upgrade case: .yaml files exist but no manifest -> seed nothing.
+def test_existing_install_without_manifest_seeds_new_samples(tmp_path):
+    """Upgrade case: .yaml files exist but no manifest -> seed the
+    shipped samples that are missing.
 
-    All shipped sample basenames are recorded in the manifest so a
-    user-deleted template is never resurrected.
+    The manifest baseline is what is actually present — NOT every
+    shipped basename. Marking all shipped names 'seen' on upgrade left
+    templates added by later releases recorded-but-absent, so they never
+    appeared in the app (POR-69 regression).
     """
     templates_dir = tmp_path / "templates"
     samples_dir = tmp_path / "samples"
@@ -84,8 +87,10 @@ def test_existing_install_without_manifest_copies_nothing(tmp_path):
 
     PromptManager(templates_dir, samples_dir)
 
-    assert _yaml_basenames(templates_dir) == {"my_custom.yaml"}
-    assert _manifest_lines(templates_dir) == set(SAMPLE_NAMES)
+    assert _yaml_basenames(templates_dir) == set(SAMPLE_NAMES) | {
+        "my_custom.yaml"}
+    assert _manifest_lines(templates_dir) == set(SAMPLE_NAMES) | {
+        "my_custom.yaml"}
 
 
 def test_new_sample_added_later_is_copied(tmp_path):

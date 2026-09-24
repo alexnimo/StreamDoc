@@ -157,10 +157,10 @@ Context: {context}
         the full seen-set is written back to the manifest.
 
         First run on an existing install (no manifest but >=1 .yaml
-        present): all shipped sample basenames are written to the
-        manifest as seen and nothing is copied — a user-deleted template
-        is indistinguishable from one that was never seeded, so we
-        conservatively resurrect nothing.
+        present): the manifest is seeded from the existing basenames,
+        then normal additive seeding proceeds — samples added by later
+        releases copy in, while a user-deleted file resurrects at most
+        once before the manifest records it.
 
         On any manifest IO error, falls back to the original behavior:
         copy all samples only when templates_dir has no .yaml files.
@@ -188,13 +188,17 @@ Context: {context}
             )
             if not manifest_exists and existing_names:
                 # Reason: existing install upgrading to manifest-based
-                # seeding — mark every shipped sample as seen so a
-                # user-deleted template is not resurrected.
+                # seeding — the manifest records what is ACTUALLY present,
+                # not everything shipped. Writing all shipped basenames
+                # here marked templates added by later releases as 'seen'
+                # without ever copying them, so they never appeared in
+                # the app. With existing_names as the baseline, new
+                # samples copy below (a user-deleted file resurrects
+                # once, then the manifest keeps it deleted).
                 manifest_path.write_text(
-                    "".join(f"{p.name}\n" for p in sample_files),
+                    "".join(f"{name}\n" for name in sorted(existing_names)),
                     encoding="utf-8",
                 )
-                return
 
             for sample_file in sample_files:
                 if sample_file.name in seen:
