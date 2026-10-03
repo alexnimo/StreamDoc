@@ -22,6 +22,7 @@ interface BackendSectionProps {
   agyModels: string[]
   loadingAgySkills: boolean
   agySkillsError: string | null
+  onRetryAgy?: () => void
   update: (patch: Partial<Preset>) => void
   disabled?: boolean
 }
@@ -40,6 +41,7 @@ export function BackendSection({
   agyModels,
   loadingAgySkills,
   agySkillsError,
+  onRetryAgy,
   update,
   disabled,
 }: BackendSectionProps) {
@@ -256,6 +258,14 @@ export function BackendSection({
               value={preset.agy_model || '__default__'}
               onValueChange={handleModelChange}
               disabled={disabled}
+              onOpenChange={(open) => {
+                // Reason: the `agy models` CLI probe can fail or time out,
+                // leaving the list empty. Retry on open so the picker can
+                // recover instead of staying stuck on "Default".
+                if (open && agyModels.length === 0 && !loadingAgySkills) {
+                  onRetryAgy?.()
+                }
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -269,7 +279,11 @@ export function BackendSection({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">The LLM model to use for generation.</p>
+            <p className="text-xs text-muted-foreground">
+              {agyModels.length === 0 && !loadingAgySkills
+                ? 'No models were returned by the agy CLI — reopen the dropdown to retry.'
+                : 'The LLM model to use for generation.'}
+            </p>
           </div>
 
           <div className="grid gap-1.5">

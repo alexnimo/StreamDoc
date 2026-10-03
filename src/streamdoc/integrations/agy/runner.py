@@ -17,6 +17,7 @@ import logging
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -187,10 +188,7 @@ def _parse_model_list(text: str) -> list[str]:
     return out
 
 
-_MODEL_CACHE: list[str] | None = None
-
-
-def resolve_agy_model(model: str | None, timeout: float = 8.0) -> str:
+def resolve_agy_model(model: str | None, timeout: float = 15.0) -> str:
     """Return a model string known to be accepted by the installed agy CLI.
 
     If ``model`` is empty, agy's own default is preserved (no ``--model``
@@ -210,11 +208,7 @@ def resolve_agy_model(model: str | None, timeout: float = 8.0) -> str:
     if not model:
         return ""
 
-    global _MODEL_CACHE
-    if _MODEL_CACHE is None:
-        _MODEL_CACHE = list_models(timeout=timeout)
-
-    available = _MODEL_CACHE
+    available = list_models_cached(timeout=timeout)
     if not available or model in available:
         return model
 
@@ -246,7 +240,7 @@ def _pick_fast_fallback(models: list[str]) -> str:
     return models[0]
 
 
-def list_models(timeout: float = 8.0) -> list[str]:
+def list_models(timeout: float = 15.0) -> list[str]:
     """Return the list of models supported by the installed agy CLI.
 
     Falls back to the operator-supplied allowlist in
@@ -256,13 +250,47 @@ def list_models(timeout: float = 8.0) -> list[str]:
     installed agy version and API keys.
 
     Args:
-        timeout: Per-candidate timeout in seconds.
+        timeout: Per-candidate timeout in seconds. ``agy models`` performs
+            a network fetch (``Fetching available models...``) so this
+            needs headroom beyond the ~2-5s warm latency.
 
     Returns:
         Sorted list of unique model identifiers.
     """
     binary = find_agy_binary()
     return _list_models_from_binary(binary, timeout)
+
+
+# Reason: `agy models` hits the network and can take several seconds (or
+# exceed the probe timeout on a cold connection / token refresh). The UI
+# re-requests the list every time the preset dialog opens, so a single
+# slow probe would leave the model picker stuck on "Default". We cache
+# *non-empty* results for a short TTL; empty results are never cached so
+# a transient failure recovers automatically on the next call.
+_LIST_MODELS_TTL_S: float = 300.0
+_list_models_cache: tuple[float, list[str]] | None = None
+
+
+def list_models_cached(timeout: float = 15.0) -> list[str]:
+    """Return discovered agy models, serving a recent probe from cache.
+
+    Args:
+        timeout: Per-candidate probe timeout passed to :func:`list_models`.
+
+    Returns:
+        Cached list when a previous probe succeeded within the TTL,
+        otherwise a fresh :func:`list_models` result.
+    """
+    global _list_models_cache
+    now = time.monotonic()
+    if _list_models_cache is not None:
+        ts, cached = _list_models_cache
+        if now - ts < _LIST_MODELS_TTL_S:
+            return list(cached)
+    models = list_models(timeout=timeout)
+    if models:
+        _list_models_cache = (now, models)
+    return models
 
 
 def _list_models_from_binary(binary: str | None, timeout: float) -> list[str]:
