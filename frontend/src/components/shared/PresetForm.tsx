@@ -176,10 +176,11 @@ export function PresetForm({
   const activeBackend = getActiveBackend()
 
   // Load AGY skills and models when the Antigravity backend is selected.
-  useEffect(() => {
-    if (activeBackend !== 'agy') return
-    if (agySkillsLoaded) return
-    setAgySkillsLoaded(true)
+  // Reason: the `agy models` CLI probe hits the network and can be slow or
+  // occasionally return an empty list. The load can be retried (the model
+  // dropdown re-triggers it on open when empty) instead of latching a bad
+  // result for the whole session.
+  const loadAgyData = () => {
     setLoadingAgySkills(true)
     setAgySkillsError(null)
     Promise.all([api.agy.listSkills(), api.agy.supportedModels()])
@@ -193,6 +194,13 @@ export function PresetForm({
         setAgyModels([])
       })
       .finally(() => setLoadingAgySkills(false))
+  }
+
+  useEffect(() => {
+    if (activeBackend !== 'agy') return
+    if (agySkillsLoaded) return
+    setAgySkillsLoaded(true)
+    loadAgyData()
   }, [activeBackend, agySkillsLoaded])
 
   // Reason: keep the template preview in sync with the selected template.
@@ -309,6 +317,7 @@ export function PresetForm({
         agyModels={agyModels}
         loadingAgySkills={loadingAgySkills}
         agySkillsError={agySkillsError}
+        onRetryAgy={loadAgyData}
         update={update}
         disabled={disabled}
       />

@@ -61,6 +61,7 @@ from streamdoc.integrations.agy.herenow import (
 from streamdoc.integrations.agy.runner import (
     AgyRunResult,
     list_models,
+    list_models_cached,
     parse_artifact_path,
     resolve_agy_model,
     run_skill,
@@ -120,6 +121,7 @@ __all__ = [
     # runner
     "AgyRunResult",
     "list_models",
+    "list_models_cached",
     "parse_artifact_path",
     "resolve_agy_model",
     "run_skill",

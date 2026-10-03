@@ -28,7 +28,7 @@ from streamdoc.api.schemas import (
 )
 from streamdoc.config import settings
 from streamdoc.integrations.agy import discovery, skills
-from streamdoc.integrations.agy import list_models as agy_list_models
+from streamdoc.integrations.agy import list_models_cached as agy_list_models
 from streamdoc.integrations.agy.skills import update_from_upstream as agy_update_from_upstream
 
 logger = logging.getLogger(__name__)
