@@ -86,6 +86,72 @@ def test_resend_job_raises_when_not_found():
         resend_job("nonexistent", "notebooklm")
 
 
+def test_resend_job_reads_preset_name_without_detached_instance(tmp_path, monkeypatch):
+    """Regression: _execute_job must not touch job.* attributes after the
+    session closes — commit() expires them and the detached read raises
+    'not bound to a Session; attribute refresh operation cannot proceed'.
+    """
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "completed"
+        job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps({"notebooklm": "error: session expired"})
+
+    captured: dict = {}
+    import streamdoc.core.jobs as jobs_mod
+    monkeypatch.setattr(
+        jobs_mod, "_send_to_destination",
+        lambda dest, paths, preset_name="", job_id="": captured.update(
+            {"dest": dest, "preset_name": preset_name, "paths": paths}
+        ),
+    )
+
+    results = resend_job(job_id, "notebooklm")
+
+    assert results == {"notebooklm": "success"}
+    assert captured["preset_name"] == "test_preset"
+    assert captured["paths"] == [report]
+
+
+def test_retry_job_retries_only_failed_destinations(tmp_path, monkeypatch):
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "partial"
+        job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps(
+            {"agy": "success", "notebooklm": "error: session expired"}
+        )
+
+    attempted: list[str] = []
+    import streamdoc.core.jobs as jobs_mod
+    monkeypatch.setattr(
+        jobs_mod, "_send_to_destination",
+        lambda dest, paths, preset_name="", job_id="": attempted.append(dest),
+    )
+
+    results = retry_job(job_id)
+
+    assert attempted == ["notebooklm"]
+    assert results == {"notebooklm": "success"}
+
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        assert job.status == "completed"
+        merged = json.loads(job.destinations)
+        assert merged["notebooklm"] == "success"
+        assert merged["agy"] == "success"
+
+
 def test_list_jobs_handles_legacy_empty_details():
     """Old rows created before the `details` column existed have empty strings.
 

@@ -275,6 +275,9 @@ def _execute_job(
 
         report_paths = _json_loads(job.report_paths)
         existing = _json_loads(job.destinations, default={})
+        # Reason: read preset_name inside the session — commit() expires all
+        # attributes, so accessing job.* afterwards raises DetachedInstanceError.
+        preset_name = job.preset_name
 
     # Verify files still exist
     missing: list[str] = []
@@ -312,7 +315,7 @@ def _execute_job(
     results: dict[str, str] = {}
     for dest in destinations_to_try:
         try:
-            _send_to_destination(dest, valid_paths, preset_name=job.preset_name, job_id=job_id)
+            _send_to_destination(dest, valid_paths, preset_name=preset_name, job_id=job_id)
             results[dest] = "success"
         except Exception as exc:
             err = f"error: {exc}"
