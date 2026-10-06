@@ -210,20 +210,58 @@ def _resolve_prompt(
         )
 
 
+def _artifact_site_root(artifact_path: Path) -> Path:
+    """Resolve the site root for a produced artifact.
+
+    Skills announce a single ``Artifact:`` path, but that path may be
+    the entry point of a multi-file site. The ``web-design-engineer``
+    contract is ``Artifact: artifact/index.html`` with sibling assets
+    (``styles.css``, ``app.js``, ``data.js``) in the same folder —
+    copying only the file drops the assets and publishes a broken,
+    unstyled page. here.now likewise expects ``index.html`` at the
+    site root.
+
+    Rules:
+      * A directory artifact is the site root as-is.
+      * A file named ``index.html`` inside a dedicated subdirectory is
+        the entry point; its parent directory is the site root.
+      * Anything else (e.g. ``presentation.html`` from
+        ``web-video-presentation``, or an ``index.html`` sitting in the
+        process cwd where "the folder" would be the entire workspace)
+        stays a single-file artifact.
+    """
+    if artifact_path.is_dir():
+        return artifact_path
+    if artifact_path.name.lower() != "index.html":
+        return artifact_path
+    parent = artifact_path.parent.resolve()
+    cwd = Path.cwd().resolve()
+    if parent == cwd or parent in cwd.parents:
+        return artifact_path
+    return artifact_path.parent
+
+
 def _persist_artifact(
     artifact_path: Path,
     preset_name: str,
 ) -> Path:
     """Copy the artifact under ``data/Outputs/agy/<preset>/<ts>/``.
 
-    Returns the destination path.
+    Multi-file site artifacts (see :func:`_artifact_site_root`) are
+    copied as a directory so sibling assets survive; single-file
+    artifacts are copied as before. Returns the destination path —
+    a directory for site artifacts, a file otherwise.
     """
+    root = _artifact_site_root(artifact_path)
     base = Path(settings.agy_output_dir) / preset_name
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     dest_dir = base / timestamp
     dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / artifact_path.name
-    shutil.copy2(artifact_path, dest)
+    dest = dest_dir / root.name
+    if root.is_dir():
+        shutil.copytree(root, dest)
+    else:
+        shutil.copy2(root, dest)
     return dest
 
 

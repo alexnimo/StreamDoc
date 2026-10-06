@@ -415,6 +415,130 @@ def test_upload_to_agy_herenow_failure_does_not_flip_success(
 
 
 # ---------------------------------------------------------------------
+# Regression: multi-file site artifacts (index.html + sibling assets)
+# ---------------------------------------------------------------------
+
+
+def _run_with_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    artifact_path: Path,
+    publish_herenow: bool = True,
+):
+    """Drive upload_to_agy with a fake run producing ``artifact_path``."""
+    from streamdoc.core import agy_upload as agy_upload_mod
+    from streamdoc.integrations.agy import herenow as herenow_mod
+    from streamdoc.integrations.agy import runner as runner_mod
+
+    _enable_agy(monkeypatch)
+    _patch_agy_output_dir(monkeypatch, tmp_path)
+
+    fake_run = AsyncMock(
+        return_value=runner_mod.AgyRunResult(
+            success=True,
+            artifact_path=artifact_path,
+            stdout="Artifact: " + str(artifact_path) + "\n",
+            stderr="",
+            exit_code=0,
+            error=None,
+            prompt_file=None,
+        )
+    )
+    fake_publish = AsyncMock(
+        return_value=herenow_mod.HerenowResult(
+            success=True,
+            url="https://here.now/x",
+            stdout="Published: https://here.now/x",
+            stderr="",
+            exit_code=0,
+            error=None,
+        )
+    )
+    monkeypatch.setattr(agy_upload_mod.runner_mod, "run_skill", fake_run)
+    monkeypatch.setattr(agy_upload_mod.herenow_mod, "publish", fake_publish)
+
+    in_pdf = tmp_path / "in.pdf"
+    in_pdf.write_bytes(b"%PDF")
+
+    result = asyncio.run(
+        agy_upload_mod.upload_to_agy(
+            report_paths=[in_pdf],
+            preset_name="t",
+            publish_herenow=publish_herenow,
+        )
+    )
+    return result, fake_publish
+
+
+def test_upload_to_agy_multifile_index_html_persists_siblings(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An announced ``artifact/index.html`` persists + publishes its folder.
+
+    Reproduces the grassy-glider-fcbp failure: web-design-engineer
+    produces ``artifact/{index.html,styles.css,app.js,data.js}`` but the
+    pipeline used to copy only index.html, so the published page loaded
+    with no styling or scripts.
+    """
+    site_dir = tmp_path / "artifact"
+    site_dir.mkdir()
+    (site_dir / "index.html").write_bytes(b"<html><link href=styles.css></html>")
+    (site_dir / "styles.css").write_bytes(b"body{}")
+    (site_dir / "app.js").write_bytes(b"console.log(1)")
+
+    result, fake_publish = _run_with_artifact(
+        monkeypatch, tmp_path, site_dir / "index.html"
+    )
+
+    assert result.success is True
+    # The persisted artifact is the directory containing all siblings.
+    assert result.artifact_path is not None
+    assert result.artifact_path.is_dir()
+    persisted = {p.name for p in result.artifact_path.iterdir()}
+    assert persisted == {"index.html", "styles.css", "app.js"}
+    # here.now publish receives the directory, not the lone file.
+    published_path = fake_publish.call_args.args[0]
+    assert published_path == result.artifact_path
+    assert (published_path / "index.html").exists()
+
+
+def test_upload_to_agy_single_file_artifact_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Non-index.html artifacts keep single-file persist + publish."""
+    src = tmp_path / "presentation.html"
+    src.write_bytes(b"<html/>")
+    (tmp_path / "unrelated.txt").write_bytes(b"noise")
+
+    result, fake_publish = _run_with_artifact(monkeypatch, tmp_path, src)
+
+    assert result.success is True
+    assert result.artifact_path is not None
+    assert result.artifact_path.is_file()
+    assert result.artifact_path.name == "presentation.html"
+    assert fake_publish.call_args.args[0] == result.artifact_path
+
+
+def test_upload_to_agy_directory_artifact_persists_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An announced directory artifact is copied wholesale."""
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+    (site_dir / "index.html").write_bytes(b"<html/>")
+    (site_dir / "styles.css").write_bytes(b"body{}")
+
+    result, fake_publish = _run_with_artifact(monkeypatch, tmp_path, site_dir)
+
+    assert result.success is True
+    assert result.artifact_path is not None
+    assert result.artifact_path.is_dir()
+    assert (result.artifact_path / "index.html").exists()
+    assert (result.artifact_path / "styles.css").exists()
+    assert fake_publish.call_args.args[0] == result.artifact_path
+
+
+# ---------------------------------------------------------------------
 # POR-91 T2: design prompt injection across all three resolution paths
 # ---------------------------------------------------------------------
 
