@@ -270,6 +270,50 @@ async def test_check_session_freshness_auto_refresh_succeeds(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        # Google serves a signed-out notebook.google.com shell (HTTP 200, no
+        # ServiceLogin redirect) whose WIZ_global_data omits SNlM0e — the new
+        # de-facto expiry surface raised by upstream extraction.
+        "CSRF token not found in HTML. Final URL: https://notebook.google.com/\n"
+        "This may indicate the page structure has changed.",
+        "Failed to extract CSRF token (SNlM0e). "
+        "Page structure may have changed or authentication expired. "
+        "Preview: '<html>...'",
+    ],
+)
+async def test_check_session_freshness_auto_refresh_on_token_extraction_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_error: str,
+):
+    """A tokenless signed-out app shell counts as auth-shaped and triggers re-capture."""
+    import tempfile
+    from unittest.mock import AsyncMock
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        storage = Path(f"{tmpdir}/storage_state.json")
+        storage.touch()
+        auth_manager = NotebookLMAuthManager(str(storage))
+
+        calls = [0]
+
+        async def _probe(self: NotebookLMAuthManager) -> None:
+            calls[0] += 1
+            if calls[0] == 1:
+                raise ValueError(probe_error)
+
+        monkeypatch.setattr(NotebookLMAuthManager, "_probe_session", _probe)
+        refresh_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(NotebookLMAuthManager, "refresh_session", refresh_mock)
+
+        status = await auth_manager.check_session_freshness(auto_refresh=True)
+
+        assert status.is_valid is True
+        assert refresh_mock.called is True
+
+
+@pytest.mark.asyncio
 async def test_check_session_freshness_auto_refresh_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ):

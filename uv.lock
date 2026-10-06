@@ -1347,12 +1347,13 @@ wheels = [
 
 [[package]]
 name = "notebooklm-py"
-version = "0.8.2"
-source = { git = "https://github.com/teng-lin/notebooklm-py.git#26505d91540f75361450d197fd7e814d268fc034" }
+version = "0.8.4"
+source = { git = "https://github.com/teng-lin/notebooklm-py.git#c2bf8d91d6d9519b84f1116cd674e340a2e4a2c0" }
 dependencies = [
     { name = "click" },
     { name = "filelock" },
     { name = "httpx" },
+    { name = "idna" },
     { name = "rich" },
 ]
 

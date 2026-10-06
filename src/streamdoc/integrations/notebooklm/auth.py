@@ -56,6 +56,14 @@ def _is_auth_error(exc: BaseException) -> bool:
     the stored cookies no longer authenticate and the upstream flow redirects to
     ``accounts.google.com``.
 
+    Since the ``notebook.google.com`` rebrand, an expired session no longer
+    guarantees a ``ServiceLogin`` redirect: Google can serve a signed-out app
+    shell (HTTP 200) whose ``WIZ_global_data`` simply omits ``SNlM0e`` /
+    ``FdrFJe``. Upstream therefore surfaces expiry as a token-extraction
+    failure ("CSRF token not found in HTML", "Failed to extract CSRF token",
+    "page structure has changed") — the remedy is the same browser re-capture,
+    so those signatures are treated as auth-shaped here.
+
     Args:
         exc: The exception to inspect.
 
@@ -72,6 +80,10 @@ def _is_auth_error(exc: BaseException) -> bool:
             "session expired",
             "session invalid",
             "unauthorized",
+            # Signed-out app shell / token-extraction failures (see docstring).
+            "not found in html",
+            "failed to extract",
+            "page structure",
         ]
     )
 
