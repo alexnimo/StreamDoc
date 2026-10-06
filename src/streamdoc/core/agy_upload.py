@@ -121,6 +121,8 @@ def _build_agy_prompt(
         f"Model: {model or 'default'}\n\n"
         f"{base_prompt}\n\n"
         f"Source reports to read:\n{source_list}\n\n"
+        f"Image links inside Markdown reports are real file paths in this "
+        f"workspace — open them directly to view or embed the images.\n\n"
         f"When the artifact is complete, print exactly one line on stdout "
         f"starting with 'Artifact: ' followed by the path to the produced "
         f"file (or directory) so the runner can locate it."
@@ -483,13 +485,18 @@ def send_reports_to_agy(
     else:
         if not out_dir.exists():
             return destinations
-        # Build report paths from fresh artifacts (PDF preferred, MD fallback).
+        # Reason: Markdown is preferred over PDF for CLI harnesses — the
+        # agent reads it directly with no extraction step (the 600s timeout
+        # on job 34f0fc52 was mostly pdfplumber round-trips), it is the
+        # source format the PDF is rendered from, and its image references
+        # are real file paths the agent can open. PDF remains the fallback
+        # when no md exists (e.g. outputs=pdf,agy without markdown).
         report_paths = []
         for a in artifacts:
-            if a.pdf_path and a.pdf_path.exists():
-                report_paths.append(a.pdf_path)
-            elif a.md_path and a.md_path.exists():
+            if a.md_path and a.md_path.exists():
                 report_paths.append(a.md_path)
+            elif a.pdf_path and a.pdf_path.exists():
+                report_paths.append(a.pdf_path)
 
     # Reason: when skip_processed=True and all videos were already
     # processed, artifacts is empty. Scan the output directory for
@@ -503,17 +510,20 @@ def send_reports_to_agy(
     # uploading stale reports from a previous run would be misleading and
     # produce a presentation based on old content.
     if not report_paths and candidates_attempted == 0:
-        existing_pdfs = sorted(out_dir.glob("*.pdf"))
+        # Reason: prefer .md for the same reasons as fresh artifacts —
+        # the agent reads it directly with no extraction step. Fall back
+        # to .pdf only when no markdown reports exist.
+        existing_reports = sorted(out_dir.glob("*.md")) or sorted(out_dir.glob("*.pdf"))
         # Reason: exclude FULL_REPORT — aggregate reports should not
         # be fed into agy; only per-video reports should be.
-        existing_pdfs = [p for p in existing_pdfs if p.stem != "FULL_REPORT"]
-        if existing_pdfs:
+        existing_reports = [p for p in existing_reports if p.stem != "FULL_REPORT"]
+        if existing_reports:
             logger.info(
-                "No new artifacts, but found %d existing PDF report(s) in %s — uploading to agy",
-                len(existing_pdfs),
+                "No new artifacts, but found %d existing report(s) in %s — uploading to agy",
+                len(existing_reports),
                 out_dir,
             )
-            report_paths = existing_pdfs
+            report_paths = existing_reports
     elif not report_paths and candidates_attempted > 0:
         # Reason: all candidates failed to process — do NOT upload stale
         # reports. Log a clear warning so the operator knows the run

@@ -334,6 +334,17 @@ export function BackendSection({
                 <span className="break-all">{preset.agy_existing_report}</span>
               </div>
             )}
+            {preset.agy_existing_report?.toLowerCase().endsWith('.pdf') && (
+              <div className="flex items-start gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-muted-foreground">
+                <Info className="h-3.5 w-3.5 shrink-0 text-amber-600 mt-0.5" />
+                <span>
+                  PDF selected — the agent must extract the text first, which is
+                  slower and burns extra tokens. Prefer the .md version when
+                  available: agents read it directly and its image references are
+                  real file paths they can open.
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between">

@@ -181,6 +181,26 @@ def test_markdown_includes_prompt_instructions(tmp_path, monkeypatch):
     assert "Summarize sentiment." in md
 
 
+def test_markdown_references_images_by_path_not_base64(tmp_path, monkeypatch):
+    """Images are emitted as file-path links so CLI agent harnesses can open them.
+
+    Reason: base64 embeds bloat the file and are unreadable to agents; a
+    path reference lets the harness view the image with its own tools.
+    """
+    monkeypatch.setattr("streamdoc.config.settings.output_root", str(tmp_path))
+    img = tmp_path / "media" / "x" / "p1" / "image_00.jpg"
+    img.parent.mkdir(parents=True)
+    img.write_bytes(b"fake-image-bytes")
+
+    posts = [_post("x", "x1", images=[str(img)])]
+    md = build_unified_social_markdown(posts, preset_name="P")
+
+    assert "base64" not in md
+    # _relative_to_outputs yields the path relative to output_root when the
+    # image lives underneath it (here: media/x/p1/image_00.jpg).
+    assert "![image_00.jpg](media/x/p1/image_00.jpg)" in md
+
+
 # ── Full output (Markdown + PDF) ────────────────────────────────────────
 
 

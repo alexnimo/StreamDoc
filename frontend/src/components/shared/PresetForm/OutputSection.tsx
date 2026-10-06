@@ -31,7 +31,11 @@ export function OutputSection({ preset, update, disabled }: OutputSectionProps) 
   return (
     <div className="rounded-md border border-border p-3 space-y-2">
       <Label className="text-xs font-medium">Output Formats</Label>
-      <p className="text-xs text-muted-foreground">Which file formats to generate.</p>
+      <p className="text-xs text-muted-foreground">
+        Which file formats to generate. Markdown is the input format for CLI/agent
+        backends (Antigravity reads it directly, including image file paths); PDF is
+        mainly for web tools like NotebookLM and human reading.
+      </p>
       <div className="flex flex-wrap gap-4 pt-0.5">
         {FORMATS.map((format) => (
           <label
@@ -47,6 +51,12 @@ export function OutputSection({ preset, update, disabled }: OutputSectionProps) 
           </label>
         ))}
       </div>
+      {current.includes('agy') && !current.includes('markdown') && (
+        <p className="text-xs text-amber-600">
+          Antigravity is enabled but Markdown is off — the backend will fall back
+          to PDF, which requires slower text extraction and burns extra tokens.
+        </p>
+      )}
     </div>
   )
 }

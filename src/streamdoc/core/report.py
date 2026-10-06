@@ -3,7 +3,6 @@ Omnibus report compilation: merges per-video reports into a single session repor
 """
 from __future__ import annotations
 
-import base64
 import logging
 import re
 from datetime import datetime, timezone
@@ -143,20 +142,15 @@ def compile_preset_report(preset_name: str, artifacts: Sequence) -> Path | None:
             lines.append(excerpt)
             lines.append("")
 
-        # Embed first frame as base64 if available
+        # Reference first frames by file path (readable by CLI agent
+        # harnesses like agy, and keeps the report small).
         frame_paths = getattr(a, "frame_paths", [])
         if frame_paths:
             lines.append("### Frames")
             lines.append("")
             for idx, fp in enumerate(frame_paths[:3], start=1):
                 if isinstance(fp, Path) and fp.exists():
-                    try:
-                        data = fp.read_bytes()
-                        b64 = base64.b64encode(data).decode("ascii")
-                        ext = fp.suffix.lstrip(".") or "jpeg"
-                        lines.append(f"![Frame {idx}](data:image/{ext};base64,{b64})")
-                    except Exception:
-                        lines.append(f"[Frame {idx}: {fp.name}]")
+                    lines.append(f"![Frame {idx}]({fp.as_posix()})")
                 else:
                     lines.append(f"[Frame {idx}]")
             lines.append("")

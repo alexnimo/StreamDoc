@@ -8,7 +8,6 @@ omitted entirely so no empty sections are emitted.
 """
 from __future__ import annotations
 
-import base64
 import html
 import logging
 from collections.abc import Sequence
@@ -73,20 +72,6 @@ def _image_exists(path: str) -> bool:
         return False
 
 
-def _embed_image_as_b64(path: str) -> tuple[str, str] | None:
-    """Return (base64_data, extension) for an image file, or None on failure."""
-    try:
-        img_path = Path(path)
-        data = img_path.read_bytes()
-        ext = img_path.suffix.lstrip(".").lower() or "jpeg"
-        if ext == "jpg":
-            ext = "jpeg"
-        return base64.b64encode(data).decode("ascii"), ext
-    except (OSError, ValueError) as exc:
-        logger.debug("failed to embed image %s: %s", path, exc)
-        return None
-
-
 def _group_posts_by_platform(
     posts: Sequence[SocialPost],
 ) -> list[tuple[str, list[SocialPost]]]:
@@ -120,7 +105,7 @@ def build_unified_social_markdown(
     platform section follows the same document pattern: a per-platform
     summary (post count, image count) followed by every post rendered with
     author, platform, publish time, post id, source link, full text, and
-    embedded images. Platforms with zero posts are omitted entirely so the
+    image file references. Platforms with zero posts are omitted entirely so the
     report never contains empty sections.
 
     Args:
@@ -207,18 +192,14 @@ def build_unified_social_markdown(
                 lines.append("")
                 for img in post.images:
                     if _image_exists(img):
-                        embedded = _embed_image_as_b64(img)
-                        if embedded:
-                            b64, ext = embedded
-                            lines.append(
-                                f'<img src="data:image/{ext};base64,{b64}" '
-                                f'alt="{Path(img).name}" style="max-width:600px;" />'
-                            )
-                            lines.append("")
-                        else:
-                            rel = _relative_to_outputs(Path(img))
-                            lines.append(f"![]({rel})")
-                            lines.append("")
+                        # Reason: reference the image by file path instead of
+                        # embedding base64. CLI harnesses (agy) can open the
+                        # file directly with their vision tools, and the md
+                        # stays small enough for an agent to read without
+                        # burning tokens on base64 noise.
+                        rel = _relative_to_outputs(Path(img))
+                        lines.append(f"![{Path(img).name}]({rel})")
+                        lines.append("")
                     else:
                         lines.append(f"_Image not found: {img}_")
                         lines.append("")

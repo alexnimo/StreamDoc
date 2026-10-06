@@ -347,6 +347,95 @@ def test_send_to_agy_does_not_upload_stale_pdfs_when_downloads_failed(monkeypatc
     assert dest == {}, f"Expected empty destinations, got: {dest}"
 
 
+def test_send_to_agy_prefers_markdown_over_pdf(monkeypatch, tmp_path):
+    """When an artifact has both .md and .pdf, agy receives the .md.
+
+    Reason: Markdown is the source format the PDF is rendered from. Agents
+    read it directly — feeding the PDF forces a slow multi-step text
+    extraction (pdfplumber) that burns tokens and can hit the timeout.
+    """
+    from streamdoc.core.agy_upload import send_reports_to_agy
+    from streamdoc.config import settings
+
+    monkeypatch.setattr(settings, "output_root", str(tmp_path))
+
+    fake_preset = _make_preset(
+        name="agyMdPref",
+        outputs="pdf,markdown,agy",
+        agy_enabled=True,
+        agy_skill="web-video-presentation",
+    )
+
+    out_dir = tmp_path / "agyMdPref"
+    out_dir.mkdir()
+    artifact = _make_artifact(out_dir)
+
+    fake_result = type("R", (), {
+        "success": True,
+        "herenow_url": None,
+        "artifact_path": None,
+        "errors": [],
+    })()
+    mock_upload = AsyncMock(return_value=fake_result)
+
+    with patch("streamdoc.core.agy_upload.upload_to_agy", mock_upload):
+        dest = send_reports_to_agy(
+            preset=fake_preset,
+            artifacts=[artifact],
+            job_id="job-md",
+            prompt_template=None,
+            custom_prompt="prompt",
+            candidates_attempted=1,
+        )
+
+    assert mock_upload.called
+    sent = mock_upload.call_args.kwargs["report_paths"]
+    assert [p.suffix for p in sent] == [".md"], f"Expected md, got: {sent}"
+    assert dest.get("agy") == "success"
+
+
+def test_send_to_agy_existing_reports_prefers_markdown(monkeypatch, tmp_path):
+    """The existing-report fallback scans .md before .pdf."""
+    from streamdoc.core.agy_upload import send_reports_to_agy
+    from streamdoc.config import settings
+
+    monkeypatch.setattr(settings, "output_root", str(tmp_path))
+
+    fake_preset = _make_preset(
+        name="agyReuploadMd",
+        outputs="pdf,markdown,agy",
+        agy_enabled=True,
+        agy_skill="web-video-presentation",
+    )
+
+    out_dir = tmp_path / "agyReuploadMd"
+    out_dir.mkdir()
+    (out_dir / "v1.pdf").write_bytes(b"%PDF existing")
+    (out_dir / "v1.md").write_text("# existing md")
+
+    fake_result = type("R", (), {
+        "success": True,
+        "herenow_url": None,
+        "artifact_path": None,
+        "errors": [],
+    })()
+    mock_upload = AsyncMock(return_value=fake_result)
+
+    with patch("streamdoc.core.agy_upload.upload_to_agy", mock_upload):
+        send_reports_to_agy(
+            preset=fake_preset,
+            artifacts=[],
+            job_id="job-reupload-md",
+            prompt_template=None,
+            custom_prompt="prompt",
+            candidates_attempted=0,
+        )
+
+    assert mock_upload.called
+    sent = mock_upload.call_args.kwargs["report_paths"]
+    assert all(p.suffix == ".md" for p in sent), f"Expected md only, got: {sent}"
+
+
 def test_send_to_agy_uploads_existing_pdfs_when_all_already_processed(monkeypatch, tmp_path):
     """When candidates_attempted == 0 and artifacts is empty, existing PDFs ARE uploaded to agy.
 
