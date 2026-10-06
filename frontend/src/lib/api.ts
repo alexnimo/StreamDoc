@@ -330,6 +330,7 @@ export interface ReportDetail {
   notebooklm_url: string | null
   notebooklm_generations: NotebookLMGenerationInfo[]
   agy_herenow_url: string | null
+  agy_herenow_claim_url: string | null
   agy_artifact_path: string | null
 }
 

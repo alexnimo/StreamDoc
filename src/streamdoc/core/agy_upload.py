@@ -62,6 +62,9 @@ class AgyUploadResult:
             ``<agy_output_dir>/<preset_name>/<timestamp>/``.
         herenow_url: Public here.now URL (when ``publish_herenow`` was
             requested and the publish step succeeded).
+        herenow_claim_url: Claim URL for anonymous here.now sites —
+            lets the operator convert the 24h-expiring site into a
+            permanent one. None for authenticated publishes.
         skill: Skill name that was invoked.
         model: Model id that was used.
         error: Human-readable error message for the content step.
@@ -72,6 +75,7 @@ class AgyUploadResult:
     success: bool = False
     artifact_path: Path | None = None
     herenow_url: str | None = None
+    herenow_claim_url: str | None = None
     skill: str | None = None
     model: str | None = None
     error: str | None = None
@@ -82,6 +86,7 @@ class AgyUploadResult:
             "success": self.success,
             "artifact_path": str(self.artifact_path) if self.artifact_path else None,
             "herenow_url": self.herenow_url,
+            "herenow_claim_url": self.herenow_claim_url,
             "skill": self.skill,
             "model": self.model,
             "error": self.error,
@@ -437,6 +442,7 @@ async def upload_to_agy(
         else:
             if publish_result.success:
                 result.herenow_url = publish_result.url
+                result.herenow_claim_url = publish_result.claim_url
             else:
                 result.errors.append(
                     publish_result.error
@@ -600,6 +606,9 @@ def send_reports_to_agy(
                 destinations["agy_artifact_path"] = str(result.artifact_path)
             if result.herenow_url:
                 destinations["agy_herenow_url"] = result.herenow_url
+            claim_url = getattr(result, "herenow_claim_url", None)
+            if claim_url:
+                destinations["agy_herenow_claim_url"] = claim_url
             if result.errors:
                 destinations["agy_errors"] = "; ".join(result.errors)
 

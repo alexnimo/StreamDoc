@@ -511,6 +511,17 @@ export default function Jobs() {
                                     Open on here.now ↗
                                   </a>
                                 )}
+                                {job.destinations['agy_herenow_claim_url'] && (
+                                  <a
+                                    href={job.destinations['agy_herenow_claim_url']}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block text-amber-600 dark:text-amber-400 hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    Claim here.now site ↗
+                                  </a>
+                                )}
                                 {job.destinations['agy_artifact_path'] && (
                                   <a
                                     href={job.destinations['agy_artifact_path']}
@@ -757,6 +768,7 @@ export default function Jobs() {
                                         }
                                         // Antigravity destinations
                                         if (key === 'agy_herenow_url') {
+                                          const claimUrl = allDests['agy_herenow_claim_url'] as string | undefined
                                           return (
                                             <div key={key} className="flex items-center gap-2 text-xs">
                                               <span className="text-emerald-600 dark:text-emerald-400">Antigravity:</span>
@@ -769,8 +781,24 @@ export default function Jobs() {
                                               >
                                                 Open on here.now <ExternalLink className="h-3 w-3" />
                                               </a>
+                                              {claimUrl && (
+                                                <a
+                                                  href={claimUrl}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline"
+                                                  onClick={(e) => e.stopPropagation()}
+                                                >
+                                                  Claim site <ExternalLink className="h-3 w-3" />
+                                                </a>
+                                              )}
                                             </div>
                                           )
+                                        }
+                                        if (key === 'agy_herenow_claim_url') {
+                                          // Reason: rendered inline next to agy_herenow_url above;
+                                          // skip a standalone row.
+                                          return null
                                         }
                                         if (key === 'agy_artifact_path') {
                                           return (

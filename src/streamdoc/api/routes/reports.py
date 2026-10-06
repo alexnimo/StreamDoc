@@ -212,6 +212,7 @@ def get_report(video_id: str) -> ReportDetail:
         notebooklm_url = None
         notebooklm_generations: list[dict[str, Any]] = []
         agy_herenow_url = None
+        agy_herenow_claim_url = None
         agy_artifact_path = None
 
         try:
@@ -253,6 +254,8 @@ def get_report(video_id: str) -> ReportDetail:
                             notebooklm_url = dests["notebooklm_url"]
                         if not agy_herenow_url and "agy_herenow_url" in dests:
                             agy_herenow_url = dests["agy_herenow_url"]
+                        if not agy_herenow_claim_url and "agy_herenow_claim_url" in dests:
+                            agy_herenow_claim_url = dests["agy_herenow_claim_url"]
                         if not agy_artifact_path and "agy_artifact_path" in dests:
                             agy_artifact_path = dests["agy_artifact_path"]
                     except Exception:
@@ -279,6 +282,7 @@ def get_report(video_id: str) -> ReportDetail:
             notebooklm_url=notebooklm_url,
             notebooklm_generations=notebooklm_generations,
             agy_herenow_url=agy_herenow_url,
+            agy_herenow_claim_url=agy_herenow_claim_url,
             agy_artifact_path=agy_artifact_path,
         )
 

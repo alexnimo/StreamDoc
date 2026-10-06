@@ -18,6 +18,7 @@ and returns the first match it finds.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -42,6 +43,9 @@ class HerenowResult:
         success: True iff the herenow-publish skill exited 0 AND we
             could parse a URL from stdout.
         url: The published here.now URL, or None.
+        claim_url: The here.now claim URL for anonymous sites (lets the
+            operator keep a 24h-expiring site permanently), or None when
+            the site is authenticated or no claim URL was issued.
         stdout: Raw stdout from the publish invocation.
         stderr: Raw stderr.
         exit_code: Process exit code.
@@ -54,11 +58,13 @@ class HerenowResult:
     stderr: str
     exit_code: int
     error: str | None = None
+    claim_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "url": self.url,
+            "claim_url": self.claim_url,
             "stdout": self.stdout,
             "stderr": self.stderr,
             "exit_code": self.exit_code,
@@ -107,6 +113,47 @@ def parse_published_url(stdout: str) -> str | None:
             # (e.g. "https://x.com." -> "https://x.com") — but only the
             # last char if it's a sentence terminator.
             return token.rstrip(".,;")
+    return None
+
+
+# Reason: the publish script emits `publish_result.claim_url=<url>` on
+# stderr for anonymous creates. Update responses don't echo it, so we
+# fall back to the script's own `.herenow/state.json` cache (keyed by
+# slug) which retains the claimUrl across updates.
+_CLAIM_URL_RE = re.compile(r"publish_result\.claim_url=(?P<u>\S+)")
+
+
+def _extract_claim_url(
+    stderr: str, site_url: str | None, cwd: Path | None
+) -> str | None:
+    """Return the claim URL for a published anonymous site, or None.
+
+    Reads the ``publish_result.claim_url=`` metadata line the publish
+    script prints on stderr, then falls back to ``.herenow/state.json``
+    in the publish working directory (the script writes claim metadata
+    there keyed by slug; update responses omit it but the stored value
+    survives).
+    """
+    match = _CLAIM_URL_RE.search(stderr or "")
+    if match:
+        candidate = match.group("u").strip().rstrip(".,;")
+        if candidate.startswith("https://"):
+            return candidate
+
+    if not site_url:
+        return None
+    slug_match = re.match(r"https?://([A-Za-z0-9-]+)\.here\.now", site_url)
+    if not slug_match:
+        return None
+    try:
+        state_path = (cwd or Path.cwd()) / ".herenow" / "state.json"
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        stored = data.get("publishes", {}).get(slug_match.group(1), {})
+        claim = stored.get("claimUrl")
+        if isinstance(claim, str) and claim.startswith("https://"):
+            return claim
+    except Exception:
+        return None
     return None
 
 
@@ -238,6 +285,7 @@ async def publish(
         stderr=result.stderr,
         exit_code=result.exit_code,
         error=None,
+        claim_url=_extract_claim_url(result.stderr, url, cwd),
     )
 
 

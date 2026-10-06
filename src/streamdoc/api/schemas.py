@@ -728,6 +728,7 @@ class ReportDetail(BaseModel):
     # Reason: include Antigravity generated content so the report hub
     # also shows the here.now public link and local artifact path.
     agy_herenow_url: str | None = None
+    agy_herenow_claim_url: str | None = None
     agy_artifact_path: str | None = None
 
 

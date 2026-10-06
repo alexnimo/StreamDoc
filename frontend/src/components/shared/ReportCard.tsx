@@ -265,6 +265,17 @@ export function ReportCard({ report }: ReportCardProps) {
                         Open on here.now
                       </a>
                     )}
+                    {detail.agy_herenow_claim_url && (
+                      <a
+                        href={detail.agy_herenow_claim_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Claim site (keep permanently)
+                      </a>
+                    )}
                     {detail.agy_artifact_path && (
                       <span
                         title={detail.agy_artifact_path}
