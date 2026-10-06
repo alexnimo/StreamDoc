@@ -489,10 +489,23 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
                         cli_tool = getattr(p, "cli_tool", None) or "agy"
                         cli_tool_template = getattr(p, "cli_tool_template", None)
 
-            # Resolve the tool from registry
-            tool = cli_tools_registry.get_tool(cli_tool)
+            # Resolve and instantiate the tool from registry.
+            # Reason: get_tool() returns the tool CLASS; calling .run() on it
+            # unbound shifts every arg and fails with
+            # "missing 1 required positional argument: 'out_dir'".
+            tool = cli_tools_registry.instantiate(cli_tool)
             if tool is None:
                 raise RuntimeError(f"CLI tool '{cli_tool}' not registered")
+
+            # Reason: job.report_paths stores BOTH the .md and .pdf of each
+            # report. Markdown is the preferred input for CLI harnesses, so
+            # drop any .pdf that has a sibling .md — feeding both doubles the
+            # agent's input and re-triggers the PDF-extraction dance.
+            md_stems = {p.stem for p in paths if p.suffix.lower() == ".md"}
+            paths = [
+                p for p in paths
+                if p.suffix.lower() != ".pdf" or p.stem not in md_stems
+            ]
 
             # Output directory for artifacts
             from streamdoc.config import settings

@@ -152,6 +152,58 @@ def test_retry_job_retries_only_failed_destinations(tmp_path, monkeypatch):
         assert merged["agy"] == "success"
 
 
+def test_retry_job_agy_instantiates_tool_and_prefers_md(tmp_path, monkeypatch):
+    """Regression: the agy retry path must call run() on a tool INSTANCE.
+
+    registry.get_tool() returns the tool CLASS; calling .run() on it
+    unbound shifts every arg and fails with
+    "missing 1 required positional argument: 'out_dir'". Additionally,
+    when job.report_paths holds both the .md and .pdf of a report, only
+    the .md should be sent — PDFs without an .md sibling are kept.
+    """
+    from types import SimpleNamespace
+
+    from streamdoc.integrations.cli_tools import registry as cli_tools_registry
+
+    md = tmp_path / "report.md"
+    pdf = tmp_path / "report.pdf"
+    legacy_pdf = tmp_path / "legacy.pdf"
+    md.write_text("# report", encoding="utf-8")
+    pdf.write_bytes(b"%PDF-fake")
+    legacy_pdf.write_bytes(b"%PDF-legacy")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "partial"
+        job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.report_paths = json.dumps([str(md), str(pdf), str(legacy_pdf)])
+        job.destinations = json.dumps({"agy": "error: timed out"})
+
+    calls: list[tuple] = []
+
+    class FakeTool:
+        name = "agy"
+
+        async def run(self, report_paths, template, out_dir):
+            calls.append((list(report_paths), template, out_dir))
+            return SimpleNamespace(success=True)
+
+    # Reason: patching get_tool also steers instantiate() (it delegates to
+    # get_tool internally). If the code ever regresses to calling .run() on
+    # the returned class instead of an instance, FakeTool.run receives an
+    # unbound call and raises TypeError — failing this test.
+    monkeypatch.setattr(cli_tools_registry, "get_tool", lambda name: FakeTool)
+
+    results = retry_job(job_id)
+
+    assert results == {"agy": "success"}
+    assert len(calls) == 1
+    paths_arg, _template, _out_dir = calls[0]
+    # .md preferred; its sibling .pdf dropped; unpaired .pdf retained
+    assert paths_arg == [md, legacy_pdf]
+
+
 def test_list_jobs_handles_legacy_empty_details():
     """Old rows created before the `details` column existed have empty strings.
 
