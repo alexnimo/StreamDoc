@@ -43,7 +43,12 @@ prompt: |
   - facts: every financially relevant fact collected for the ticker.
   - posts: the underlying social posts with author, text, sentiment,
     timestamp, and source link.
-  - charts: every image associated with the stock, as real file paths.
+  - charts: every image associated with the stock. Copy each image into
+    the artifact folder (e.g. `artifact/media/<original relative path>`)
+    and store it as an object `{original_path, artifact_path}` so
+    provenance is preserved; `artifact_path` must be the relative path
+    inside the artifact that actually serves. The same convention applies
+    to `posts[].images` and per-user `charts`.
 
   AI summaries — evidence-backed, one per level:
   - Per stock: a `summary` field holding 1-3 sentences that synthesize the

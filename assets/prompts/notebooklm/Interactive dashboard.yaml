@@ -37,6 +37,13 @@ prompt: |
   - Users: a list where each entry holds the handle, platform, and every
     piece of data collected from that user (claims, analyses, price
     targets, sentiment stance, charts).
+  - Media references: every chart or post image may be a plain path string
+    OR an object such as `{original_path, artifact_path}`. When objects are
+    used, always render the artifact-relative `artifact_path` (never the
+    absolute source `original_path`, and never interpolate the object
+    itself into a src/href - that produces literal "[object Object]" URLs
+    and broken images). When copying media into the artifact, preserve the
+    referenced relative directory structure exactly.
   - Parse whatever the sources actually provide into this shape; leave
     missing pieces as explicit "no data" rather than inventing structure.
 
@@ -118,8 +125,13 @@ prompt: |
     the most common breakage; count or otherwise check brace balance.
   - Verify every file the HTML references (styles.css, app.js, data.js,
     images) is actually written into `artifact/`.
-  - Verify no console errors on load, all views switch correctly, and the
-    page has no horizontal overflow at 320px.
+  - Verify every generated `src`/`href` is a real relative path that
+    resolves to a file inside `artifact/` - grep the rendered output for
+    "[object Object]" and absolute filesystem paths (C:\, C:/, /home/,
+    /Users/) and fix them.
+  - Verify no console errors or failed (4xx) resource loads on load, all
+    views switch correctly, and the page has no horizontal overflow at
+    320px.
 
   Completion:
   - Emit `Artifact: artifact/index.html` on stdout and exit 0 when done.
