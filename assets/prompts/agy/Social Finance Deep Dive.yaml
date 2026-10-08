@@ -1,0 +1,81 @@
+name: Social Finance Deep Dive
+description: agy content-generation prompt for social-finance dashboards (Reddit, StockTwits, X/Twitter) requiring per-stock, per-sector, and segment AI summaries plus full sentiment statistics.
+template_kind: content
+target_types:
+  - slide_deck
+  - report
+  - infographic
+variables: {}
+prompt: |
+  Build a structured, decision-relevant financial-intelligence dashboard from
+  the provided social-network source reports (Reddit, StockTwits, X/Twitter)
+  and their attached media. Read every listed source file before writing any
+  output. The artifact is FINANCIAL DATA ONLY.
+
+  Source fidelity (hard rules):
+  - Use only data present in the sources. Do not fabricate tickers, prices,
+    users, sentiment scores, statistics, summaries, or chart values.
+  - Render an explicit "no data" / null value for anything the sources do not
+    support, rather than guessing.
+  - Aggressively filter out: commercial content and ads, self-promotion,
+    jokes, memes, off-topic chatter, and non-financial data.
+  - Do not treat rumors, anonymous price-target pump posts, or unsupported
+    assertions as factual unless the source provides credible evidence.
+  - Preserve uncertainty where the source is uncertain.
+  - Attribute every material claim, statistic, prediction, or signal to its
+    source and user handle. If a claim cannot be attributed, label it
+    unattributed rather than dropping the attribution or inventing a source.
+
+  Data the artifact MUST carry (machine-readable data layer, e.g. data.js):
+
+  Per-stock statistics — for every stock mentioned in the sources:
+  - ticker, name, sector.
+  - mentions (total post count), unique contributing users, and the user
+    handles behind it.
+  - bullish_count, bearish_count, neutral_count — explicit integer counts
+    per stock (use "no data" only when the source cannot be classified).
+  - sentiment_score — a normalized net-sentiment value derived only from the
+    counted posts.
+  - price_targets with context, when explicitly stated.
+  - technical_analysis items and indicators with PRECISE numeric levels
+    (RSI values, MACD readings, moving-average values, volume, support and
+    resistance prices) — exact numbers, never vague phrasing.
+  - facts: every financially relevant fact collected for the ticker.
+  - posts: the underlying social posts with author, text, sentiment,
+    timestamp, and source link.
+  - charts: every image associated with the stock, as real file paths.
+
+  AI summaries — evidence-backed, one per level:
+  - Per stock: a `summary` field holding 1-3 sentences that synthesize the
+    ticker's dominant themes, key levels, and net sentiment — grounded only
+    in that stock's collected data. If the stock has too little source data
+    for a meaningful synthesis, set `summary` to null and let the UI show a
+    "no summary available" state. Never pad a thin ticker with speculation.
+  - Per sector/industry: a `summary` field synthesizing sector-level
+    sentiment, leading tickers, and cross-stock themes.
+  - Per segment or theme where the sources support it (e.g. macro/indices,
+    crypto, meme names): a summary distinguishing the long-term thesis from
+    short-term noise, and separating factual developments, interpretation,
+    and speculation.
+
+  Per-user data — for every contributing user:
+  - handle, platform, post_count, bullish/bearish/neutral counts, covered
+    tickers, claims, predictions with stated or implied time horizons,
+    sentiment stance, charts, and posts.
+
+  Sector/industry data — for every sector:
+  - sector name, member stocks, total_mentions, bullish/bearish/neutral
+    counts, aggregate_sentiment, sentiment_score, and the sector `summary`
+    above. Constituent stocks must link into the per-stock view.
+
+  Arrangement:
+  - Arrange stocks by the number of unique users mentioning them, most
+    discussed first.
+  - Merge duplicate points across sources into a unified per-stock view and
+    make disagreement explicit when sources diverge.
+  - Separate the long-term investment thesis from short-term catalysts,
+    intraday chatter, and noise for each asset.
+
+  When the artifact is complete it must be a self-contained multi-view
+  dashboard (see the design block for layout requirements), with every value
+  above flowing from the sources — nothing invented, nothing dropped.

@@ -301,6 +301,8 @@ A template's `target_types` declares which content types it can render: `slide_d
 
 This separation prevents accidental commits of user-specific prompts while keeping the repo shippable with good defaults.
 
+agy content prompts live in a parallel pair of dirs — `assets/prompts/agy/` (tracked samples) and `config/prompts/agy/` (gitignored user copies). A preset's `agy_prompt_template` name resolves **only** against the agy dirs, so pointing it at a `notebooklm/` template name silently falls back to the generic default. Any usable agy template must list `slide_deck` in `target_types` — the agy runner always renders prompts as that content type, and `target_types` values that aren't valid notebooklm `ContentType` members get the template dropped at load time.
+
 ## CLI reference
 
 ```bash
