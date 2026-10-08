@@ -1,5 +1,5 @@
 name: Interactive dashboard
-description: Design-system prompt for a slick, modern, multi-view interactive dashboard built from collected financial data.
+description: Design-system prompt for a slick, modern, mobile-first multi-view interactive dashboard built from collected financial data.
 template_kind: design
 target_types:
   - interactive_dashboard
@@ -15,68 +15,111 @@ prompt: |
 
   Source fidelity:
   - Read the provided sources first. Use only data present in the sources.
-  - Do not fabricate tickers, prices, users, sentiment scores, chart values, or
-    statistics.
+  - Do not fabricate tickers, prices, users, sentiment scores, summaries,
+    chart values, or statistics.
   - When a value cannot be determined from the sources, render an explicit
     "no data" state rather than guessing.
 
   Data contract - shape the application around this structure:
-  - Stocks: a list where each entry holds the ticker/name, a technical-analysis
-    list (each item: signal or indicator, precise level, interpretation, and
-    source), an indicators list (RSI, MACD, moving averages, volume, and any
-    other reported indicator with exact values), the users the information was
-    assembled from, the charts associated with the stock, and all facts,
-    financial, and informative data collected for it.
+  - Stocks: a list where each entry holds the ticker/name, sector, mention
+    count, bullish/bearish/neutral post counts, a net sentiment_score, a
+    `summary` field (1-3 sentence evidence-backed synthesis, or null when
+    there is too little data), a technical-analysis list (each item:
+    signal or indicator, precise level, interpretation, and source), an
+    indicators list (RSI, MACD, moving averages, volume, and any other
+    reported indicator with exact values), price targets with context, the
+    users the information was assembled from, the charts associated with
+    the stock, all collected facts, and the underlying posts.
   - Industries: a list (for example energy, healthcare, fintech) where each
-    entry holds the sector name, all stocks belonging to that sector, a sector
-    summary, and an aggregate sentiment.
-  - Users: a list where each entry holds the handle, platform, and every piece
-    of data collected from that user (claims, analyses, price targets,
-    sentiment stance, charts).
-  - Parse whatever the sources actually provide into this shape; leave missing
-    pieces as explicit "no data" rather than inventing structure.
+    entry holds the sector name, all stocks belonging to that sector,
+    mention and bullish/bearish/neutral counts, a sector `summary`, and an
+    aggregate sentiment.
+  - Users: a list where each entry holds the handle, platform, and every
+    piece of data collected from that user (claims, analyses, price
+    targets, sentiment stance, charts).
+  - Parse whatever the sources actually provide into this shape; leave
+    missing pieces as explicit "no data" rather than inventing structure.
 
   Views and navigation (multi-view HTML app):
-  - Provide global navigation between at least three views: per-stock,
-    per-user, and per-industry.
-  - Per-stock view: the full picture for one stock - every contributing user
-    with their relevant data and analysis, technical-analysis and indicator
-    levels, price targets, sentiment breakdown, and associated charts.
+  - Provide global navigation between at least four views: a sentiment
+    overview, per-stock, per-user, and per-industry.
+  - Sentiment overview: a sortable statistics table of every stock -
+    ticker, sector, mentions, bullish / bearish / neutral counts, and net
+    sentiment - plus market-wide totals, each row linking into its
+    per-stock view.
+  - Per-stock view, organized into clearly separated sections in this
+    order: stock header (ticker, name, sector, net-sentiment badge,
+    mention count, contributing analysts); AI summary block (render the
+    `summary` field, or a muted "no summary available" state when null);
+    sentiment breakdown (bullish / bearish / neutral counts with a
+    proportional bar); price targets (only when present); key facts;
+    technical analysis and signals; indicators; associated charts; and the
+    social-post timeline. Render long-form items (post text, analysis
+    text) as stacked content cards with author, sentiment badge, and
+    source link - never dump raw text into narrow table cells and never
+    nest a table inside a table.
   - Per-user view: everything collected from a single user - their claims,
     covered tickers, predictions, sentiment stance, and charts.
-  - Per-industry view: the sector summary, aggregate sentiment, and all stocks
-    in the sector, each linking into its per-stock view.
-  - Make the screens interactive throughout: navigation, filters (platform,
-    sentiment, mention volume, sector), sorting, search, and drill-down links
-    between views.
+  - Per-industry view: the sector `summary`, aggregate sentiment, and all
+    stocks in the sector, each linking into its per-stock view.
+  - Make the screens interactive throughout: navigation, filters
+    (platform, sentiment, mention volume, sector), sorting, search, and
+    drill-down links between views.
+
+  Mobile-first layout (phones and tablets are primary targets):
+  - The app must be fully usable at 320px width: no horizontal page
+    overflow anywhere; all content fits the viewport.
+  - Global navigation becomes a horizontally scrollable tab strip on
+    narrow screens - never compress all nav items into one cramped row;
+    keep touch targets at least 40-44px.
+  - Data tables switch to stacked card rows on small screens (each row a
+    card with labeled fields via data-label or equivalent) instead of
+    forcing horizontal scrolling of wide tables.
+  - Selects, inputs, and filter controls go full-width and stack on
+    phones; inputs use at least 16px font to avoid iOS focus zoom.
+  - Quick-access pills and ticker chips scroll horizontally rather than
+    wrapping into tall blocks.
+  - Multi-column grids collapse to a single column on phones and two
+    columns on tablets.
+  - Images scale to the container; modals/lightboxes fit the viewport
+    with the close control reachable inside the screen.
 
   Charts and visuals:
   - Surface every chart collected or uploaded from the report.
   - When the runtime supports it, re-create charts into more visual and
-    appealing representations (cleaner axes, readable labels, consistent color
-    coding). Re-created charts must plot only values present in the sources,
-    keep units and time ranges intact, and credit the original source - never
-    smooth, extend, or invent data points.
-  - Combine text and visuals throughout: pair every major data block with an
-    appropriate visual treatment instead of presenting walls of text.
+    appealing representations (cleaner axes, readable labels, consistent
+    color coding). Re-created charts must plot only values present in the
+    sources, keep units and time ranges intact, and credit the original
+    source - never smooth, extend, or invent data points.
+  - Combine text and visuals throughout: pair every major data block with
+    an appropriate visual treatment instead of presenting walls of text.
 
   Design system:
-  - Declare a complete design system using CSS custom properties for palette,
-    typography, spacing, radius, and motion.
-  - Use a dark-mode-friendly professional palette as the default. An optional
-    light/dark toggle is fine.
-  - Avoid AI cliches such as purple-pink gradients, emoji-as-icons, or default
-    Inter unless the brand explicitly demands them.
-  - Maintain strong contrast and clear hierarchy; keep layouts information-
-    dense but scannable.
+  - Declare a complete design system using CSS custom properties for
+    palette, typography, spacing, radius, and motion.
+  - Use a dark-mode-friendly professional palette as the default. An
+    optional light/dark toggle is fine.
+  - Avoid AI cliches such as purple-pink gradients, emoji-as-icons, or
+    default Inter unless the brand explicitly demands them.
+  - Maintain strong contrast and clear hierarchy; keep layouts
+    information-dense but scannable.
 
   Interactivity and accessibility:
-  - Make the dashboard fully responsive and accessible: keyboard navigable,
-    screen-reader friendly, visible focus states, and ARIA labels where
-    appropriate.
-  - Use hardware-accelerated motion sparingly for hover and selection feedback,
-    and respect prefers-reduced-motion.
+  - Keyboard navigable, screen-reader friendly, visible focus states, and
+    ARIA labels where appropriate; every form control has an associated
+    label or aria-label.
+  - Use hardware-accelerated motion sparingly for hover and selection
+    feedback, and respect prefers-reduced-motion.
   - Keep the artifact self-contained and production-ready.
+
+  Validation before emitting the artifact:
+  - Verify `styles.css` is syntactically complete: every rule is closed -
+    a missing closing brace silently swallows all following rules and is
+    the most common breakage; count or otherwise check brace balance.
+  - Verify every file the HTML references (styles.css, app.js, data.js,
+    images) is actually written into `artifact/`.
+  - Verify no console errors on load, all views switch correctly, and the
+    page has no horizontal overflow at 320px.
 
   Completion:
   - Emit `Artifact: artifact/index.html` on stdout and exit 0 when done.

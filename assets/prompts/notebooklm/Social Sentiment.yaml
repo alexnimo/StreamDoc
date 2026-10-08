@@ -36,6 +36,9 @@ prompt: |
     - Mention counts and unique-user counts.
     - Positive / negative / neutral / no-data sentiment counts (use "no data" only when
       the source cannot be classified).
+    - A concise summary synthesizing the stock's dominant themes, key levels, and net
+      sentiment - grounded only in that stock's collected data. Use "no data" when the
+      source data is too thin for a meaningful synthesis rather than speculating.
     - Price targets, if explicitly stated with supporting context.
     - Platform breakdown (e.g., Reddit vs. StockTwits vs. X) when source metadata is
       available.
@@ -43,6 +46,10 @@ prompt: |
       or dominant time frame.
   - If multiple sources discuss the same stock, merge duplicate points into a unified view
     and make disagreement explicit when sources diverge.
+  - Provide a sector-level summary for each industry group (leading tickers, cross-stock
+    themes, aggregate sentiment) and a segment-level summary for broader themes (macro,
+    crypto, meme names) where the sources support them, separating factual developments
+    from interpretation and speculation.
 
   Output format:
   - Produce a structured, consistent, machine-readable report with clearly labeled

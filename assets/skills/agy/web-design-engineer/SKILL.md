@@ -74,9 +74,19 @@ artifact from the provided brief and source files.
      semantic HTML; keyboard-focusable interactive elements.
    - `styles.css` with design tokens as CSS custom properties, no frameworks
      unless the brief explicitly asks for one.
-7. Run a pre-delivery check: no missing asset paths, no text overflow, no rogue
-   colors outside the declared palette, no `scrollIntoView`, no `const styles`
-   global object.
+7. Run a pre-delivery check:
+   - `styles.css` is syntactically complete: every opened rule is closed.
+     A single missing `}` silently swallows every rule after it — verify
+     brace balance before delivering.
+   - No missing asset paths: every `src`/`href` the page references exists
+     inside `artifact/` (scripts, stylesheets, data files, images).
+   - No text overflow, no rogue colors outside the declared palette, no
+     `scrollIntoView`, no `const styles` global object.
+   - Mobile works: layout usable at 320px with no horizontal page
+     overflow, navigation reachable (scrollable tab strip or equivalent),
+     touch targets at least 40px, and no wide tables forcing horizontal
+     scroll on phones (stack them into cards or label them via
+     `data-label`).
 8. After the files are written, emit exactly one stdout line. The comment in
    the example below is explanatory; only the `Artifact:` line is actual
    output.
@@ -98,5 +108,7 @@ artifact from the provided brief and source files.
 - Prefer hand-written CSS with custom properties; load a CDN only when the
   scenario clearly calls for it.
 - Support responsive breakpoints and respect `prefers-reduced-motion`.
-- Keep the two-file artifact (`index.html` + `styles.css`) so the runner can
-  copy the folder cleanly.
+- Keep every file the site needs inside `artifact/` (`index.html`,
+  `styles.css`, plus any `app.js`/`data.js`/media the page references) so
+  the runner can copy the folder cleanly — files left outside `artifact/`
+  are not published.
