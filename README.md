@@ -332,6 +332,15 @@ Schedule string formats:
 
 The APScheduler runs inside the API process and reconciles its jobs with the presets table on startup and after every preset create/update/delete. Inactive presets (`active=false`) are not scheduled even if they have a `schedule` set. Legacy `schedule_interval_hours` values are auto-converted to `interval:` schedules for backward compatibility.
 
+#### Preset files on disk (`config/presets/`)
+
+`*.yaml` / `*.yml` / `*.json` files in `config/presets/` are imported into the DB at startup — **once per file version**, tracked by content hash in `config/presets/.autoloaded`. Consequences:
+
+- Deleting a preset in the UI **stays deleted** — the file no longer resurrects it on restart.
+- UI edits (including `active=false`) **persist** across restarts.
+- Editing the file on disk re-imports it (file wins on real changes).
+- To force a re-import of an unchanged file, delete its line in `.autoloaded` (or remove the manifest).
+
 ## Updating
 
 StreamDoc has a unified update flow via `just update` that handles all four update layers. `pyproject.toml` uses lower-bound (`>=`) versions and default-branch git sources for fast-moving packages, so `uv lock --upgrade` always pulls the latest compatible releases.

@@ -3,6 +3,7 @@ Preset loading and upsert logic.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -259,16 +260,99 @@ def load_preset_file(path: Path) -> Preset:
     return upsert_preset(payload, name_hint=path.stem)
 
 
+# Reason: dotfile manifest recording which preset files have been imported
+# and at which content hash. The name must NOT use a .yaml/.yml/.json suffix —
+# autoload scans those extensions and would try to parse the manifest itself
+# as a preset. This mirrors the `.seeded_samples` convention used for prompt
+# template seeding.
+_AUTOLOAD_MANIFEST = ".autoloaded"
+
+
+def _read_autoload_manifest(presets_dir: Path) -> dict[str, str]:
+    """Read the autoload manifest mapping preset filenames to content hashes.
+
+    Args:
+        presets_dir: Directory containing preset files and the manifest.
+
+    Returns:
+        Dict mapping ``filename -> sha256 hexdigest`` of the last imported
+        file contents. Empty dict when the manifest is missing or unreadable.
+    """
+    manifest_path = presets_dir / _AUTOLOAD_MANIFEST
+    seen: dict[str, str] = {}
+    try:
+        for line in manifest_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            digest, sep, name = line.partition("\t")
+            if sep and name:
+                seen[name] = digest
+    except OSError:
+        pass
+    return seen
+
+
+def _write_autoload_manifest(presets_dir: Path, seen: dict[str, str]) -> None:
+    """Write the autoload manifest. Never raises — manifest IO must not
+    break startup (same precedent as ``_seed_from_samples``)."""
+    try:
+        (presets_dir / _AUTOLOAD_MANIFEST).write_text(
+            "".join(
+                f"{digest}\t{name}\n" for name, digest in sorted(seen.items())
+            ),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("Failed to write preset autoload manifest: %s", exc)
+
+
 def autoload_presets() -> list[Preset]:
+    """Import preset files into the DB, once per file content version.
+
+    Each file is upserted only when its contents differ from the last
+    imported version (tracked by sha256 in the ``.autoloaded`` manifest).
+    This keeps the "edit file -> restart -> preset updates" workflow while
+    making UI-side deletions and deactivations stick across restarts —
+    previously every startup re-upserted the files wholesale, resurrecting
+    deleted presets and resetting ``active``.
+
+    Notes:
+        - Re-adding a file whose exact contents were already imported does
+          NOT re-import it (the manifest entry survives file deletion). To
+          force a re-import, edit the file or remove its manifest line.
+        - First run on an existing install (no manifest): every file is
+          imported one final time and the manifest is written.
+        - Files that fail to load are not marked imported so they retry
+          on the next startup.
+
+    Returns:
+        Presets that were (re)imported during this run.
+    """
     presets_dir = Path(settings.presets_path)
     if not presets_dir.exists() or not presets_dir.is_dir():
         return []
+    seen = _read_autoload_manifest(presets_dir)
+    changed = not (presets_dir / _AUTOLOAD_MANIFEST).exists()
     out: list[Preset] = []
     for child in sorted(presets_dir.iterdir()):
         if child.suffix.lower() not in {".yaml", ".yml", ".json"}:
             continue
+        if not child.is_file():
+            continue
+        try:
+            digest = hashlib.sha256(child.read_bytes()).hexdigest()
+        except OSError as exc:
+            logger.warning("Failed to read preset %s: %s", child, exc)
+            continue
+        if seen.get(child.name) == digest:
+            continue
         try:
             out.append(load_preset_file(child))
+            seen[child.name] = digest
+            changed = True
         except Exception as exc:
             logger.warning("Failed to load preset %s: %s", child, exc)
+    if changed:
+        _write_autoload_manifest(presets_dir, seen)
     return out
