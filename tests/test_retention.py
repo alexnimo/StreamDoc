@@ -618,6 +618,11 @@ def test_upload_to_notebooklm_passes_retention_hours_to_manager(monkeypatch):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
+        async def _pass_through(operation):
+            return await operation()
+
+        mock_client.with_auth_check = _pass_through
+
         # Mock RetentionManager
         mock_retention = MockRetention.return_value
         mock_content_record = MagicMock()

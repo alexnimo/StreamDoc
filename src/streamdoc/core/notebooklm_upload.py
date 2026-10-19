@@ -118,6 +118,8 @@ async def upload_to_notebooklm(
     retry_generation: bool = True,
     retry_attempts: int = 1,
     retry_delay: float = 300.0,
+    resume: bool = False,
+    progress_cb=None,
 ) -> NotebookLMUploadResult:
     """Upload reports to NotebookLM and optionally generate content.
     
@@ -155,6 +157,9 @@ async def upload_to_notebooklm(
         retry_generation: Whether to retry if NotebookLM generation fails
         retry_attempts: Number of extra generation attempts after the first failure
         retry_delay: Seconds to wait between retries
+        resume: When True with an existing notebook_id, skip source upload
+            and go straight to content generation — used by job retry when a
+            prior run already got the sources up but generation failed.
 
     Returns:
         NotebookLMUploadResult with operation results
@@ -252,9 +257,14 @@ async def upload_to_notebooklm(
             
             # Create or get notebook
             if notebook_id:
-                # Use existing notebook
+                # Use existing notebook. Reason: get_notebook is wrapped in
+                # with_auth_check so a session that expired mid-run
+                # (between require_auth and this call) is refreshed rather
+                # than failing instantly — reads are safe to replay.
                 try:
-                    nb = await notebooks.get_notebook(notebook_id)
+                    nb = await client.with_auth_check(
+                        lambda: notebooks.get_notebook(notebook_id)
+                    )
                 except NotebookLMIntegrationError as e:
                     return NotebookLMUploadResult(
                         success=False,
@@ -266,38 +276,61 @@ async def upload_to_notebooklm(
                 # new slide deck — this is the intended behavior. Different
                 # runs produce different content and should NOT share a
                 # notebook.
+                # Reason: wrapped in with_auth_check so a mid-run expiry is
+                # refreshed and retried. A committed-then-errored create
+                # could leave an orphan notebook; that is recoverable via
+                # retention cleanup, whereas a hard failure kills the run.
                 timestamp = asyncio.get_event_loop().time()
                 title = f"{preset_name} - {timestamp:.0f}"
                 try:
-                    nb = await notebooks.create_notebook(title)
+                    nb = await client.with_auth_check(
+                        lambda: notebooks.create_notebook(title)
+                    )
                 except NotebookLMIntegrationError as e:
                     return NotebookLMUploadResult(
                         success=False,
                         errors=[f"Failed to create notebook: {e}"]
                     )
             
-            # Upload reports as sources
+            def _progress(msg: str) -> None:
+                if progress_cb:
+                    try:
+                        progress_cb(msg)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            # Upload reports as sources. On resume (job retry after a
+            # generation-side failure) the sources are already in the
+            # notebook — skip re-uploading entirely.
             sources = []
             upload_errors = []
 
-            for i, report_path in enumerate(report_paths):
-                # Reason: small delay between uploads to avoid hitting
-                # NotebookLM's rate limit on source creation.
-                if i > 0:
-                    await asyncio.sleep(2)
-                try:
-                    source = await content_mgr.upload_report(
-                        nb.id,
-                        report_path,
-                        title=report_path.stem
-                    )
-                    sources.append({
-                        "id": source.id,
-                        "title": source.title
-                    })
-                except Exception as e:
-                    upload_errors.append(f"Failed to upload {report_path}: {e}")
-            
+            if resume and notebook_id:
+                logger.info(
+                    "Resuming on existing notebook %s — skipping source upload",
+                    nb.id,
+                )
+                sources = [{"id": "", "title": "(existing sources)"}]
+            else:
+                for i, report_path in enumerate(report_paths):
+                    # Reason: small delay between uploads to avoid hitting
+                    # NotebookLM's rate limit on source creation.
+                    if i > 0:
+                        await asyncio.sleep(2)
+                    _progress(f"Uploading source {i + 1}/{len(report_paths)}: {report_path.name}")
+                    try:
+                        source = await content_mgr.upload_report(
+                            nb.id,
+                            report_path,
+                            title=report_path.stem
+                        )
+                        sources.append({
+                            "id": source.id,
+                            "title": source.title
+                        })
+                    except Exception as e:
+                        upload_errors.append(f"Failed to upload {report_path}: {e}")
+
             if not sources:
                 return NotebookLMUploadResult(
                     success=False,
@@ -309,7 +342,10 @@ async def upload_to_notebooklm(
             # Reason: log failures so the user knows why the notebook link
             # is missing, instead of silently setting it to None.
             try:
-                notebook_url = await notebooks.enable_sharing(nb.id, public=True)
+                _progress("Enabling notebook sharing...")
+                notebook_url = await client.with_auth_check(
+                    lambda: notebooks.enable_sharing(nb.id, public=True)
+                )
             except Exception as exc:
                 logger.warning("Failed to enable sharing for notebook %s: %s", nb.id, exc)
                 notebook_url = None
@@ -318,6 +354,7 @@ async def upload_to_notebooklm(
             # before starting content generation. Without this delay, the
             # generation can fail because the sources aren't indexed yet.
             if sources:
+                _progress("Waiting for source indexing...")
                 logger.info("Waiting 5s for source indexing before generation...")
                 await asyncio.sleep(5)
 
@@ -335,6 +372,7 @@ async def upload_to_notebooklm(
                 retry_generation=retry_generation,
                 retry_attempts=retry_attempts,
                 retry_delay=retry_delay,
+                progress_cb=progress_cb,
             )
             
             # Register for retention tracking.

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -237,3 +239,192 @@ def test_list_jobs_handles_legacy_empty_details():
     assert legacy["errors"] == []
     # And it must round-trip through the pydantic schema the dashboard uses
     JobOut(**legacy)
+
+
+def test_retry_job_skips_metadata_destination_keys(tmp_path, monkeypatch):
+    """Regression: destinations holds metadata keys alongside real send
+    targets (urls, local paths, pending markers, *_errors lists). Retrying
+    must only attempt the sendable destinations — previously every key was
+    attempted, so "notebooklm_url" etc. produced bogus "Unknown destination"
+    results that overwrote the real error, and a list value like
+    notebooklm_errors crashed str.startswith outright.
+    """
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "failed"
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps({
+            "notebooklm": "error: The server rejected this request (unauthenticated).",
+            "notebooklm_errors": ["gen failed", "upload failed"],
+            "notebooklm_url": "https://notebook.google.com/x",
+            "notebooklm_slide_deck": "pending",
+            "agy": "success",
+        })
+    attempted: list[str] = []
+    import streamdoc.core.jobs as jobs_mod
+
+    def _fake_send(dest, paths, preset_name="", job_id=""):
+        attempted.append(dest)
+        # Real sends return fresh metadata extras; return the URL the new
+        # run produced so stale-key purging can be verified alongside.
+        return {"notebooklm_url": "https://notebook.google.com/new"}
+
+    monkeypatch.setattr(jobs_mod, "_send_to_destination", _fake_send)
+
+    results = retry_job(job_id)
+
+    assert attempted == ["notebooklm"]
+    assert results == {"notebooklm": "success"}
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        merged = json.loads(job.destinations)
+        assert merged["notebooklm"] == "success"
+        # Fresh metadata replaced the stale run's keys; stale keys that the
+        # new run didn't produce (old errors list, stale per-type state)
+        # are gone rather than contradicting the fresh "success".
+        assert merged["notebooklm_url"] == "https://notebook.google.com/new"
+        assert "notebooklm_errors" not in merged
+        assert "notebooklm_slide_deck" not in merged
+        # Untouched destinations keep their metadata.
+        assert merged["agy"] == "success"
+
+
+def test_resend_job_rejects_unknown_destination(tmp_path, monkeypatch):
+    """Resend to a non-sendable name (e.g. a free-text typo or a metadata
+    key like "notebooklm_url") must not attempt a send."""
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps({"notebooklm": "success"})
+
+    attempted: list[str] = []
+    import streamdoc.core.jobs as jobs_mod
+    monkeypatch.setattr(
+        jobs_mod, "_send_to_destination",
+        lambda dest, paths, preset_name="", job_id="": attempted.append(dest),
+    )
+
+    results = resend_job(job_id, "notebooklm_url")
+
+    assert attempted == []
+    assert results == {}
+
+
+def _stub_upload_module(monkeypatch, captured: dict, success: bool = True):
+    """Inject a fake streamdoc.core.notebooklm_upload into sys.modules.
+
+    Reason: importing the real module inside a test binds its module-level
+    ``from streamdoc.config import settings`` to the _isolated_db fixture's
+    fake Settings permanently — poisoning prompt-dir settings for every
+    later test in the session. A sys.modules stub avoids the import while
+    still letting _send_to_destination's local import resolve.
+    """
+    class _FakeResult:
+        def __init__(self, ok):
+            self.success = ok
+            self.errors = []
+            self.notebook_id = "nb-fake"
+            self.notebook_url = ""
+            self.generated_content = []
+    async def _fake_upload(**kwargs):
+        captured.update(kwargs)
+        return _FakeResult(success)
+
+    fake = types.ModuleType("streamdoc.core.notebooklm_upload")
+    fake.upload_to_notebooklm = _fake_upload
+    monkeypatch.setitem(sys.modules, "streamdoc.core.notebooklm_upload", fake)
+
+
+def test_send_to_notebooklm_resumes_failed_notebook(tmp_path, monkeypatch):
+    """Regression: a job whose generation failed AFTER sources uploaded
+    stores notebooklm_id; the retry must resume generation on that notebook
+    (notebook_id + resume=True) instead of re-uploading into an orphan.
+    """
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "failed"
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps({
+            "notebooklm": "error: Failed to generate ContentType.SLIDE_DECK: quota",
+            "notebooklm_id": "nb-123",
+        })
+
+    captured: dict = {}
+    _stub_upload_module(monkeypatch, captured)
+
+    import streamdoc.core.jobs as jobs_mod
+    monkeypatch.setattr(
+        "streamdoc.async_utils.run_async",
+        lambda coro: __import__("asyncio").run(coro),
+    )
+
+    jobs_mod._send_to_destination(
+        "notebooklm", [report], preset_name="test_preset", job_id=job_id,
+    )
+
+    assert captured["notebook_id"] == "nb-123"
+    assert captured["resume"] is True
+
+
+def test_send_to_notebooklm_no_resume_on_upload_failure(tmp_path, monkeypatch):
+    """When the stored error is an UPLOAD failure, the notebook's sources are
+    unreliable — retry must start a fresh notebook (no notebook_id/resume)."""
+    report = tmp_path / "report.md"
+    report.write_text("# report", encoding="utf-8")
+
+    job_id = create_job("test_preset")
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        job.status = "failed"
+        job.report_paths = json.dumps([str(report)])
+        job.destinations = json.dumps({
+            "notebooklm": "error: Failed to upload report 'x.md': Source failed to process",
+            "notebooklm_id": "nb-999",
+        })
+
+    captured: dict = {}
+    _stub_upload_module(monkeypatch, captured)
+
+    import streamdoc.core.jobs as jobs_mod
+    monkeypatch.setattr(
+        "streamdoc.async_utils.run_async",
+        lambda coro: __import__("asyncio").run(coro),
+    )
+
+    jobs_mod._send_to_destination(
+        "notebooklm", [report], preset_name="test_preset", job_id=job_id,
+    )
+
+    assert captured["notebook_id"] is None
+    assert captured["resume"] is False
+
+
+def test_is_auth_error_matches_unauthenticated_rpc():
+    """Regression: 'The server rejected this request (unauthenticated).' is
+    a wire-decoder UNAUTHENTICATED status — the signature must be treated as
+    auth-shaped so check_session_freshness triggers browser re-capture."""
+    from streamdoc.integrations.notebooklm.auth import _is_auth_error
+
+    exc = Exception("The server rejected this request (unauthenticated).")
+    assert _is_auth_error(exc) is True
+    # And the upstream wording embedded inside our wrapper message too
+    exc2 = Exception(
+        "Failed to generate ContentType.SLIDE_DECK: "
+        "The server rejected this request (unauthenticated)."
+    )
+    assert _is_auth_error(exc2) is True
+    # Non-auth errors still rejected
+    assert _is_auth_error(Exception("Resource exhausted")) is False
+    assert _is_auth_error(Exception("File not found: report.md")) is False

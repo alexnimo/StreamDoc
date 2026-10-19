@@ -80,7 +80,11 @@ def _is_auth_error(exc: BaseException) -> bool:
             "session expired",
             "session invalid",
             "unauthorized",
-            # Signed-out app shell / token-extraction failures (see docstring).
+            # RPC-layer rejections: the wire decoder surfaces a UNAUTHENTICATED
+            # gRPC status as "The server rejected this request
+            # (unauthenticated)." — expired write-side auth even when read
+            # probes still pass. Same remedy: browser re-capture.
+            "unauthenticated",
             "not found in html",
             "failed to extract",
             "page structure",

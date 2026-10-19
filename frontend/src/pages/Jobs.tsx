@@ -180,6 +180,8 @@ export default function Jobs() {
   const [fetchPreset, setFetchPreset] = useState<string>('')
   const [resendJob, setResendJob] = useState<Job | null>(null)
   const [resendDest, setResendDest] = useState('notebooklm')
+  const [retryingId, setRetryingId] = useState<string | null>(null)
+  const [resendBusy, setResendBusy] = useState(false)
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
   const { latestEvent, events, isDone } = useSSE(activeJobId)
 
@@ -287,11 +289,15 @@ export default function Jobs() {
   }
 
   const retryJob = async (id: string) => {
+    setRetryingId(id)
     try {
-      await api.retryJob(id)
-      load()
+      const res = await api.retryJob(id)
+      if (res.status === 'already_running') setError(`Retry already running for job ${id}`)
+      else setActiveJobId(id)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setRetryingId(null)
     }
   }
 
@@ -305,15 +311,19 @@ export default function Jobs() {
   }
 
   const doResend = async () => {
-    if (!resendJob) return
+    if (!resendJob || resendBusy) return
+    setResendBusy(true)
     try {
       await api.resendJob(resendJob.id, resendDest)
+      setActiveJobId(resendJob.id)
       setResendJob(null)
-      load()
     } catch (e) {
       setError((e as Error).message)
+    } finally {
+      setResendBusy(false)
     }
   }
+
 
   return (
     <div className="space-y-6">
@@ -442,8 +452,8 @@ export default function Jobs() {
                             {Object.keys(job.destinations).length > 0 ? (
                               <div className="space-y-0.5">
                                 {Object.entries(job.destinations).filter(([k]) => k === 'notebooklm').map(([dest, result]) => (
-                                  <span key={dest} className={result.startsWith('success') ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
-                                    {dest}: {result.startsWith('success') ? '✓' : '✗'}
+                                  <span key={dest} className={result.startsWith('success') ? 'text-emerald-600 dark:text-emerald-400' : result === 'in_progress' ? 'text-amber-500' : 'text-destructive'}>
+                                    {dest}: {result.startsWith('success') ? '✓' : result === 'in_progress' ? '⟳ running…' : '✗'}
                                   </span>
                                 ))}
                                 {job.destinations['notebooklm_url'] && (
@@ -552,8 +562,8 @@ export default function Jobs() {
                                 </Button>
                               )}
                               {(job.status === 'failed' || job.status === 'partial') && (
-                                <Button variant="ghost" size="icon" className="h-6 w-6" title="Retry" onClick={() => retryJob(job.id)}>
-                                  <RotateCw className="h-3 w-3" />
+                                <Button variant="ghost" size="icon" className="h-6 w-6" title="Retry" disabled={retryingId === job.id} onClick={() => retryJob(job.id)}>
+                                  {retryingId === job.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
                                 </Button>
                               )}
                               <Button variant="ghost" size="icon" className="h-6 w-6" title="Resend" onClick={() => setResendJob(job)}>
@@ -759,6 +769,14 @@ export default function Jobs() {
                                           )
                                         }
                                         if (key === 'notebooklm' && typeof value === 'string' && !value.startsWith('success')) {
+                                          if (value === 'in_progress') {
+                                            return (
+                                              <div key={key} className="flex items-center gap-2 text-xs">
+                                                <Loader2 className="h-3 w-3 animate-spin text-amber-500" />
+                                                <span className="text-amber-500">NotebookLM: sending in progress…</span>
+                                              </div>
+                                            )
+                                          }
                                           return (
                                             <div key={key} className="flex items-center gap-2 text-xs text-destructive">
                                               <AlertCircle className="h-3 w-3" />
@@ -862,15 +880,24 @@ export default function Jobs() {
           <div className="grid gap-3 py-2">
             <div className="grid gap-1.5">
               <Label htmlFor="dest" className="text-xs">Destination</Label>
-              <Input id="dest" value={resendDest} onChange={(e) => setResendDest(e.target.value)} placeholder="notebooklm" />
+              <Select value={resendDest} onValueChange={setResendDest}>
+                <SelectTrigger id="dest" className="w-40"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="notebooklm">NotebookLM</SelectItem>
+                  <SelectItem value="agy">agy</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <p className="text-xs text-muted-foreground">
-              This will resend the job's report files to the specified destination.
+              This will resend the job's report files to the selected destination.
+              The resend runs in the background — the job's destination status updates when it finishes.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setResendJob(null)} size="sm">Cancel</Button>
-            <Button onClick={doResend} size="sm">Resend</Button>
+            <Button variant="outline" onClick={() => setResendJob(null)} size="sm" disabled={resendBusy}>Cancel</Button>
+            <Button onClick={doResend} size="sm" disabled={resendBusy}>
+              {resendBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Resend
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

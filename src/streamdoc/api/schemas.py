@@ -178,7 +178,9 @@ class JobOut(BaseModel):
 
 class JobRetryResponse(BaseModel):
     results: dict[str, str]
-
+    # "started" (background run began), "already_running" (a retry/resend is
+    # in flight for this job), or "completed" for synchronous callers.
+    status: str = "completed"
 
 class JobResendRequest(BaseModel):
     destination: str

@@ -76,6 +76,10 @@ class _MockClientWrapper:
     def artifacts(self):
         return self._artifacts
 
+    async def with_auth_check(self, operation):
+        """Mirror NotebookLMClientWrapper.with_auth_check — pass-through."""
+        return await operation()
+
 
 @pytest.mark.asyncio
 async def test_generate_content_propagates_failed_status_with_no_task_id():

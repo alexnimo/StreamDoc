@@ -699,6 +699,16 @@ class PresetRunner:
             else:
                 err = "; ".join(result.errors) if result.errors else "Upload failed"
                 destinations["notebooklm"] = f"error: {err}"
+                # Reason: when the notebook was created and sources uploaded
+                # but generation failed (stale write-side auth, quota), keep
+                # the notebook id so a retry can RESUME generation on the
+                # same notebook instead of re-uploading sources into an
+                # orphan. Only persist when sources made it up — otherwise a
+                # fresh notebook is the right retry.
+                if getattr(result, "notebook_id", None) and getattr(result, "sources", None):
+                    destinations["notebooklm_id"] = result.notebook_id
+                    if result.notebook_url:
+                        destinations["notebooklm_url"] = result.notebook_url
         except Exception as exc:
             destinations["notebooklm"] = f"error: {exc}"
             logger.warning("NotebookLM upload failed: %s", exc)

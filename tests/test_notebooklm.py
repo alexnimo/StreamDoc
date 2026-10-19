@@ -290,6 +290,10 @@ class _MockClientWrapper:
     def artifacts(self):
         return self._artifacts
 
+    async def with_auth_check(self, operation):
+        """Mirror NotebookLMClientWrapper.with_auth_check — pass-through."""
+        return await operation()
+
 
 @pytest.mark.asyncio
 async def test_prompt_injected_into_slide_deck_generation():
@@ -499,6 +503,10 @@ class _MockUploadClient:
     def __init__(self):
         self.artifacts = _MockArtifactsAPI()
         self.sources = _MockSourcesAPI()
+
+    async def with_auth_check(self, operation):
+        """Mirror NotebookLMClientWrapper.with_auth_check — pass-through."""
+        return await operation()
 
 
 class _FakeClientContext:

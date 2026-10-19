@@ -78,9 +78,9 @@ export const api = {
     fetchJSON<Job[]>(`/jobs?limit=${limit}${status ? `&status=${status}` : ''}`),
   getJob: (id: string) => fetchJSON<Job>(`/jobs/${id}`),
   retryJob: (id: string) =>
-    fetchJSON<{ results: Record<string, string> }>(`/jobs/${id}/retry`, { method: 'POST' }),
+    fetchJSON<{ results: Record<string, string>; status?: string }>(`/jobs/${id}/retry`, { method: 'POST' }),
   resendJob: (id: string, destination: string) =>
-    fetchJSON<{ results: Record<string, string> }>(
+    fetchJSON<{ results: Record<string, string>; status?: string }>(
       `/jobs/${id}/resend`,
       { method: 'POST', body: JSON.stringify({ destination }) },
     ),

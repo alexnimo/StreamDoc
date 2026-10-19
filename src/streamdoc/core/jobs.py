@@ -241,6 +241,15 @@ def fail_job(job_id: str, error: str) -> None:
 # Retry / Resend
 # ---------------------------------------------------------------------------
 
+# Destination keys that represent an actual send target. Everything else in
+# the destinations dict is metadata produced by a send (share URLs, local
+# artifact paths, pending markers, error lists like ``notebooklm_errors`` /
+# ``agy_errors``, ``notebooklm_id``) and must never be sent to
+# ``_send_to_destination`` — a retry would try "Unknown destination" for each
+# metadata key and overwrite the real error, and non-string values (error
+# lists) crash ``str.startswith`` outright.
+_SEND_DESTINATIONS = ("notebooklm", "agy")
+
 def retry_job(job_id: str) -> dict[str, str]:
     """Retry all destinations that previously failed for a job.
 
@@ -300,30 +309,86 @@ def _execute_job(
     # Determine which destinations to attempt
     destinations_to_try: list[str] = []
     if new_destinations:
-        destinations_to_try = new_destinations
+        destinations_to_try = [
+            d for d in new_destinations if d in _SEND_DESTINATIONS
+        ]
     else:
-        # Retry: only destinations that did NOT succeed previously
+        # Retry: only real send destinations that did NOT succeed previously.
+        # Metadata keys (urls, paths, *_errors lists) are filtered by the
+        # whitelist; non-string values are guarded so a list can't crash the
+        # startswith check.
         for dest, result in existing.items():
-            if not result.startswith("success"):
+            if dest not in _SEND_DESTINATIONS:
+                continue
+            if not isinstance(result, str) or not result.startswith("success"):
                 destinations_to_try.append(dest)
 
     if not destinations_to_try:
         logger.info("Job %s: nothing to retry/resend", job_id)
         return {}
 
+    # Reason: mark the job running + each attempted destination in_progress
+    # BEFORE starting. Retried sends run for minutes (NotebookLM upload +
+    # generation with internal 300s retry delays); until now the row kept
+    # showing the old "failed" status and stale error for the whole window,
+    # which is what made retry look dead. The "in_progress" value also
+    # triggers the UI's 30s pending-poll.
+    def _emit(msg: str, step: str = "upload", status: str = "running",
+              progress: float | None = None) -> None:
+        try:
+            from streamdoc.api.sse import emit_progress
+            emit_progress(job_id, step=step, message=msg, progress=progress, status=status)
+        except Exception:  # noqa: BLE001
+            pass
+
+    verb = "Resending" if new_destinations else "Retrying"
+    _emit(f"{verb} job reports to {', '.join(destinations_to_try)}...", progress=90)
+    with session_scope() as session:
+        job = session.get(JobModel, job_id)
+        if job:
+            job.status = "running"
+            # Reason: clear the errors column too — otherwise the previous
+            # failure stays displayed next to the new "running" state for
+            # the entire retry (potentially minutes), looking like nothing
+            # changed.
+            job.errors = _json_dumps([])
+            # Reason: purge the PREVIOUS run's per-destination metadata for
+            # every attempted destination (old notebooklm_url, per-type
+            # errors/paths, *_errors lists). Those keys described the failed
+            # run — while the retry runs they showed a second, stale error
+            # message that contradicted the errors column. notebooklm_id is
+            # kept: the send path reads it to resume generation on the same
+            # notebook.
+            marked = {
+                k: v for k, v in existing.items()
+                if not any(
+                    k.startswith(f"{dest}_") and k != f"{dest}_id"
+                    for dest in destinations_to_try
+                )
+            }
+            for dest in destinations_to_try:
+                marked[dest] = "in_progress"
+            job.destinations = _json_dumps(marked)
+
     # Attempt sends
     results: dict[str, str] = {}
+    extras_merged: dict[str, Any] = {}
     for dest in destinations_to_try:
+        _emit(f"Sending to {dest}...", progress=92)
         try:
-            _send_to_destination(dest, valid_paths, preset_name=preset_name, job_id=job_id)
+            extra = _send_to_destination(dest, valid_paths, preset_name=preset_name, job_id=job_id)
             results[dest] = "success"
+            if isinstance(extra, dict):
+                extras_merged.update(extra)
+            _emit(f"{dest}: send succeeded", progress=97)
         except Exception as exc:
             err = f"error: {exc}"
             results[dest] = err
+            _emit(f"{dest}: send failed — {exc}", status="running")
             logger.warning("Send to %s failed for job %s: %s", dest, job_id, exc)
 
-    # Merge results into existing and update DB
-    merged = {**existing, **results}
+    # Merge results over the marked (stale-purged) destinations.
+    merged = {**marked, **results, **extras_merged}
     # Reason: only treat explicit error messages as errors — file paths
     # and other non-error strings are successful results.
     errors = [
@@ -344,6 +409,20 @@ def _execute_job(
             job.status = status
 
     logger.info("Job %s retry/resend results: %s", job_id, results)
+    # Terminal event closes the SSE stream → the UI's isDone flips and
+    # reloads the job row, showing the updated destinations immediately
+    # instead of waiting for the 30s poll.
+    _emit(
+        f"{verb} finished: {status}",
+        step="complete",
+        status="completed" if status != "failed" else "failed",
+        progress=100,
+    )
+    try:
+        from streamdoc.api.sse import sse_manager
+        sse_manager.complete(job_id)
+    except Exception:  # noqa: BLE001
+        pass
     return results
 
 
@@ -395,7 +474,24 @@ def cleanup_stale_jobs() -> int:
 # Destination send (placeholder for actual integrations)
 # ---------------------------------------------------------------------------
 
-def _send_to_destination(destination: str, paths: list[Path], preset_name: str = "", job_id: str = "") -> None:
+def _progress_cb_for_job(job_id: str):
+    """Return a progress callback that relays stage messages to SSE.
+
+    Wired into upload_to_notebooklm → batch_generate → generate_content so
+    the multi-minute generation/retry-delay waits show up in the live
+    progress bar instead of only in logs.
+    """
+    def _cb(msg: str) -> None:
+        try:
+            from streamdoc.api.sse import emit_progress
+            emit_progress(job_id, step="upload", message=msg, progress=94, status="running")
+        except Exception:  # noqa: BLE001
+            pass
+    return _cb
+
+
+
+def _send_to_destination(destination: str, paths: list[Path], preset_name: str = "", job_id: str = "") -> dict[str, Any]:
     """Send files to an external destination.
 
     Args:
@@ -406,6 +502,11 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
 
     Raises:
         RuntimeError: If the destination is not configured or the send fails.
+
+    Returns:
+        Dict of destination-metadata extras (share URL, artifact paths,
+        per-type statuses) produced by a successful send, for the caller to
+        merge over the stale keys from the failed run.
     """
     if destination == "notebooklm":
         from streamdoc.core.notebooklm_upload import upload_to_notebooklm
@@ -419,6 +520,10 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
         retention_enabled = True
         prompt_template = None
         design_prompt_template = None
+        # Reason: custom_prompt must be initialized outside the nested
+        # `if p:` — a missing preset row used to leave it unbound and crash
+        # the send with UnboundLocalError.
+        custom_prompt = None
         if preset_name:
             with session_scope() as session:
                 p = session.get(PresetModel, preset_name)
@@ -450,6 +555,24 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
             preset_shim, content_types[0] if content_types else ContentType.REPORT  # type: ignore[arg-type]
         )
 
+        # Reason: when the previous attempt got the notebook created and
+        # sources uploaded but generation failed, resume generation on the
+        # SAME notebook — re-uploading into a fresh notebook orphans the old
+        # one and doubles the source-upload quota. notebooklm_id is stored
+        # by _send_reports only when sources made it up, so reuse is safe.
+        resume_notebook_id = None
+        if job_id:
+            try:
+                with session_scope() as _s:
+                    _j = _s.get(JobModel, job_id)
+                    _existing = _json_loads(_j.destinations, default={}) if _j else {}
+                if _existing.get("notebooklm_id"):
+                    _prev_err = _existing.get("notebooklm", "")
+                    if isinstance(_prev_err, str) and "failed to upload" not in _prev_err.lower():
+                        resume_notebook_id = _existing["notebooklm_id"]
+            except Exception as _e:
+                logger.debug("NotebookLM resume lookup failed for job %s: %s", job_id, _e)
+
         from streamdoc.async_utils import run_async
         # Reason: notebooklm_kind is a content type (e.g. "slide_deck"), NOT a
         # prompt template name. The content type is conveyed via content_types.
@@ -462,17 +585,44 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
             report_paths=paths,
             preset_name=preset_name or "unknown",
             job_id=job_id or None,
-            content_types=content_types if content_types else None,
+            notebook_id=resume_notebook_id,
+            resume=bool(resume_notebook_id),
             prompt_template=prompt_template,
             custom_prompt=custom_prompt,
             design_prompt=design_prompt,
             retention_hours=notebook_retention_hours,
             is_permanent=not retention_enabled,
+            progress_cb=_progress_cb_for_job(job_id),
         ))
+
+        # Reason: return the per-content-type metadata the fetch pipeline
+        # records (share URL, artifact paths, per-type errors) so the caller
+        # can overwrite the stale keys from the failed run — otherwise the
+        # destinations cell keeps showing the old error next to a fresh
+        # "success" and the two disagree.
+        extras: dict[str, Any] = {"notebooklm_id": result.notebook_id or ""}
+        if result.notebook_url:
+            extras["notebooklm_url"] = result.notebook_url
+        for gc in result.generated_content or []:
+            ct_name = gc.content_type.value if hasattr(gc, "content_type") else str(gc.content_type)
+            gc_status = getattr(gc, "status", "")
+            gc_local = getattr(gc, "local_path", None)
+            gc_error = getattr(gc, "error", "")
+            if gc_local and Path(gc_local).exists():
+                extras[f"notebooklm_{ct_name}"] = str(gc_local)
+            elif gc_status == "pending":
+                extras[f"notebooklm_{ct_name}"] = "pending"
+            elif gc_status == "failed":
+                extras[f"notebooklm_{ct_name}"] = (
+                    f"error: {gc_error}" if gc_error else "error: generation failed"
+                )
+        if result.errors:
+            extras["notebooklm_errors"] = result.errors
 
         if not result.success:
             err = "; ".join(result.errors) if result.errors else "Upload failed"
             raise RuntimeError(err)
+        return extras
     elif destination == "agy":
             # Use the CLI tool registry to run the agy adapter
             from streamdoc.async_utils import run_async
@@ -517,6 +667,20 @@ def _send_to_destination(destination: str, paths: list[Path], preset_name: str =
             if not result.success:
                 err = result.error or "agy tool execution failed"
                 raise RuntimeError(err)
+            # Reason: mirror the metadata fetch._send_to_agy records so the
+            # retry's success cell shows the artifact/link just like the
+            # original run — without it the purged agy_* keys stay empty.
+            agy_extras: dict[str, Any] = {}
+            if getattr(result, "artifact_path", None):
+                agy_extras["agy_artifact_path"] = str(result.artifact_path)
+            if getattr(result, "herenow_url", None):
+                agy_extras["agy_herenow_url"] = result.herenow_url
+            claim_url = getattr(result, "herenow_claim_url", None)
+            if claim_url:
+                agy_extras["agy_herenow_claim_url"] = claim_url
+            if getattr(result, "errors", None):
+                agy_extras["agy_errors"] = "; ".join(result.errors)
+            return agy_extras
     else:
         raise RuntimeError(f"Unknown destination: {destination}")
 
